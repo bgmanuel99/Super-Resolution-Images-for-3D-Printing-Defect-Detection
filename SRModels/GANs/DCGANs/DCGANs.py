@@ -6,23 +6,20 @@ from keras.optimizers import Adam
 from keras.models import Sequential
 from keras.datasets import mnist
 from keras.losses import BinaryCrossentropy
-from keras.layers import Dense, BatchNormalization, LeakyReLU, Reshape, Conv2DTranspose, Conv2D, ReLU, Flatten, Input
+from keras.layers import Dense, BatchNormalization, LeakyReLU, Reshape, Conv2DTranspose, Conv2D, Dropout, Flatten, Input
 
 class DCGAN:
-    def __init__(self, checkpoint_dir='dcgan_checkpoints', noise_dim=100):
+    def __init__(self, noise_dim=100):
         self.noise_dim = noise_dim
-        self.checkpoint_dir = checkpoint_dir
         self.cross_entropy = BinaryCrossentropy(from_logits=True)
-
-        # Crear modelos
+        
         self.generator = self._build_generator()
         self.discriminator = self._build_discriminator()
-
-        # Optimizers
+        
         self.generator_optimizer = Adam(1e-4)
         self.discriminator_optimizer = Adam(1e-4)
-
-        # Checkpoint Manager
+        
+        checkpoint_dir="dcgan_checkpoints"
         self.checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
         self.checkpoint = tf.train.Checkpoint(generator=self.generator,
                                               discriminator=self.discriminator,
@@ -32,11 +29,10 @@ class DCGAN:
 
         # Cargar datos
         (train_images, _), _ = mnist.load_data()
-        train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('float32')
+        train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype("float32")
         self.train_images = (train_images - 127.5) / 127.5  # Normalización [-1, 1]
         self.batch_size = 256
-        self.buffer_size = 60000
-        self.train_dataset = tf.data.Dataset.from_tensor_slices(self.train_images).shuffle(self.buffer_size).batch(self.batch_size)
+        self.train_dataset = tf.data.Dataset.from_tensor_slices(self.train_images).shuffle(60000).batch(self.batch_size)
 
         # Seed para generación constante
         self.seed = tf.random.normal([25, self.noise_dim])
@@ -46,29 +42,20 @@ class DCGAN:
         model = Sequential([
             Input(shape=(self.noise_dim,)),
             
-            # Project and reshape
-            Dense(4 * 4 * 1024, use_bias=False),
-            Reshape((4, 4, 1024)),
+            Dense(7 * 7 * 256, use_bias=False),
             BatchNormalization(),
-            ReLU(),
+            LeakyReLU(),
             
-            # Upsample to 8x8
-            Conv2DTranspose(512, kernel_size=5, strides=2, padding='same', use_bias=False),
+            Reshape((7, 7, 256)),
+            Conv2DTranspose(128, kernel_size=5, strides=1, padding="same", use_bias=False),
             BatchNormalization(),
-            ReLU(),
+            LeakyReLU(),
             
-            # Upsample to 16x16
-            Conv2DTranspose(256, kernel_size=5, strides=2, padding='same', use_bias=False),
+            Conv2DTranspose(64, kernel_size=5, strides=2, padding="same", use_bias=False),
             BatchNormalization(),
-            ReLU(),
+            LeakyReLU(),
             
-            # Upsample to 32x32
-            Conv2DTranspose(128, kernel_size=5, strides=2, padding='same', use_bias=False),
-            BatchNormalization(),
-            ReLU(),
-            
-            # Final layer to 64x64
-            Conv2DTranspose(3, kernel_size=5, strides=2, padding='same', use_bias=False, activation='tanh')
+            Conv2DTranspose(1, kernel_size=5, strides=2, padding="same", use_bias=False, activation="tanh")
         ])
         
         return model
@@ -78,28 +65,16 @@ class DCGAN:
         model = Sequential([
             Input(shape=(64, 64, 3)),
             
-            # 64x64 -> 32x32
-            Conv2D(64, kernel_size=5, strides=2, padding='same', use_bias=False),
-            LeakyReLU(negative_slope=0.2),
+            Conv2D(64, kernel_size=5, strides=2, padding="same"),
+            LeakyReLU(),
+            Dropout(0.3),
             
-            # 32x32 -> 16x16
-            Conv2D(128, kernel_size=5, strides=2, padding='same', use_bias=False),
-            BatchNormalization(),
-            LeakyReLU(negative_slope=0.2),
+            Conv2D(128, kernel_size=5, strides=2, padding="same"),
+            LeakyReLU(),
+            Dropout(0.3),
             
-            # 16x16 -> 8x8
-            Conv2D(256, kernel_size=5, strides=2, padding='same', use_bias=False),
-            BatchNormalization(),
-            LeakyReLU(negative_slope=0.2),
-            
-            # 8x8 -> 4x4
-            Conv2D(512, kernel_size=5, strides=2, padding='same', use_bias=False),
-            BatchNormalization(),
-            LeakyReLU(negative_slope=0.2),
-            
-            # Final classification
             Flatten(),
-            Dense(1, use_bias=False)
+            Dense(1)
         ])
         
         return model
@@ -136,13 +111,17 @@ class DCGAN:
     
     def train(self, epochs=50):
         for epoch in range(epochs):
-            for image_batch in self.train_dataset:
-                gen_loss, disc_loss = self._train_step(image_batch)
+            try:
+                for image_batch in self.train_dataset:
+                    gen_loss, disc_loss = self._train_step(image_batch)
+            except tf.errors.OutOfRangeError:
+                break
             
-            if epoch % 10 == 0 or epoch == 1:
-                print(f"Epoch {epoch}, Generator Loss: {gen_loss:.4f}, Discriminator Loss: {disc_loss:.4f}")
-                self.generate_and_save_images(epoch)
+            if epoch % 10 == 0:
                 self.manager.save()
+            
+            print(f"Epoch {epoch}, Generator Loss: {gen_loss:.4f}, Discriminator Loss: {disc_loss:.4f}")
+            self.generate_and_save_images(f"epoch_{epoch}_image.png")
 
     def restore_latest_checkpoint(self):
         latest = self.manager.latest_checkpoint
@@ -150,26 +129,23 @@ class DCGAN:
         if latest:
             self.checkpoint.restore(latest).expect_partial()
             print(f"Modelo restaurado desde {latest}")
-            self._verify_restored_model()
         else:
             print("No se encontró ningún checkpoint para restaurar.")
 
-    def _verify_restored_model(self):
-        try:
-            self.generate_and_plot_images()
-            print("Verificación del modelo restaurado completada correctamente.")
-        except Exception as e:
-            print("Error al verificar el modelo restaurado:", e)
-
-    def generate_and_save_images(self, epoch):
+    def generate_and_save_images(self, image_name="dcgan_generated_images.png"):
+        output_dir = "DCGANs/output"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
         predictions = self.generator(self.seed, training=False)
         
-        _ = plt.figure(figsize=(4, 4))
+        _ = plt.figure(figsize=(5, 5))
         
         for i in range(predictions.shape[0]):
-            plt.subplot(4, 4, i + 1)
-            plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
-            plt.axis('off')
+            plt.subplot(5, 5, i + 1)
+            plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap="gray")
+            plt.axis("off")
             
-        plt.savefig(f'image_at_epoch_{epoch:04d}.png')
+        output_path = os.path.join(output_dir, image_name)
+        plt.savefig(output_path)
         plt.close()

@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 
 training_checkpoints/
+output/
