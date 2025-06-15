@@ -1,7 +1,7 @@
-from DCGANs.DCGANs import DCGAN
+from LPGANs.LPGANs import LaplacianPyramidGAN
 
 if __name__ == "__main__":
     # Initialize the DCGAN model
-    dcgan = DCGAN()
+    lpgan = LaplacianPyramidGAN()
     
-    dcgan.train()
+    lpgan.train()

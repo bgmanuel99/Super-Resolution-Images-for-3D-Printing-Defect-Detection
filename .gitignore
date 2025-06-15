@@ -175,3 +175,5 @@ cython_debug/
 
 training_checkpoints/
 output/
+*.mp4
+*.png

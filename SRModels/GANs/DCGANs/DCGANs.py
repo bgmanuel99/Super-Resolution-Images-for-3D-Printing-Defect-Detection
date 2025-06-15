@@ -19,7 +19,7 @@ class DCGAN:
         self.generator_optimizer = Adam(1e-4)
         self.discriminator_optimizer = Adam(1e-4)
         
-        checkpoint_dir="dcgan_checkpoints"
+        checkpoint_dir="./DCGANs/training_checkpoints"
         self.checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
         self.checkpoint = tf.train.Checkpoint(generator=self.generator,
                                               discriminator=self.discriminator,
@@ -63,13 +63,13 @@ class DCGAN:
     # DCGAN Discriminator Architecture
     def _build_discriminator(self):
         model = Sequential([
-            Input(shape=(64, 64, 3)),
+            Input(shape=(28, 28, 1)),
             
-            Conv2D(64, kernel_size=5, strides=2, padding="same"),
+            Conv2D(64, kernel_size=5, strides=2, padding='same'),
             LeakyReLU(),
             Dropout(0.3),
             
-            Conv2D(128, kernel_size=5, strides=2, padding="same"),
+            Conv2D(128, kernel_size=5, strides=2, padding='same'),
             LeakyReLU(),
             Dropout(0.3),
             
