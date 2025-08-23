@@ -180,3 +180,4 @@ output/
 *.jpg
 *.h5
 *.csv
+*.pkl
