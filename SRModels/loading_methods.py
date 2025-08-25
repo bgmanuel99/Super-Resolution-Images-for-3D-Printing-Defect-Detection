@@ -7,15 +7,15 @@ def add_padding(image, patch_size, stride):
 
     h, w, _ = image.shape
 
-    # Calcular cuánto padding se necesita
-    pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
-    pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
+    # Compute required padding so patches cover entire image
+    pad_h = ((patch_size - (h % stride)) % stride if h % stride != 0 else 0)
+    pad_w = ((patch_size - (w % stride)) % stride if w % stride != 0 else 0)
 
-    # Agregar padding extra para asegurar cobertura completa
+    # Add extra padding to guarantee full coverage
     pad_h = max(pad_h, patch_size - stride)
     pad_w = max(pad_w, patch_size - stride)
 
-    # Padding reflejado (mirror) para mantener continuidad
+    # Use reflected padding (mirror) to preserve edge continuity
     padded_img = np.pad(
         image, 
         ((0, pad_h), (0, pad_w), (0, 0)), 
@@ -29,7 +29,9 @@ def get_all_image_paths(root):
     
     for dirpath, _, filenames in os.walk(root):
         for filename in filenames:
-            if filename.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff")):
+            if filename.lower().endswith(
+                (".jpg", ".jpeg", ".png", ".bmp", ".tiff")
+            ):
                 image_paths.append(os.path.join(dirpath, filename))
     
     return sorted(image_paths)
@@ -46,8 +48,10 @@ def load_dataset_as_patches(
     Dataset loader producing aligned LR/HR patch pairs.
 
     Modes:
-        'srcnn': Upscale LR to HR size first; both patches are (patch_size x patch_size).
-        'scale': Treat patch_size as LR patch size; HR patch size = patch_size * scale_factor.
+        'srcnn': Upscale LR to HR size first; both patches are
+            (patch_size x patch_size).
+        'scale': Treat patch_size as LR patch size; HR patch size =
+            patch_size * scale_factor.
 
     Parameters
     ----------
@@ -86,7 +90,8 @@ def load_dataset_as_patches(
         raise ValueError("patch_size must be positive int.")
     if not isinstance(stride, int) or stride <= 0:
         raise ValueError("stride must be positive int.")
-    if mode == 'scale' and (not isinstance(scale_factor, int) or scale_factor <= 0):
+    if (mode == 'scale' 
+        and (not isinstance(scale_factor, int) or scale_factor <= 0)):
         raise ValueError("scale_factor must be positive int.")
 
     X, Y = [], []
@@ -106,14 +111,22 @@ def load_dataset_as_patches(
         lr_img = cv2.imread(lr_dict[fname], cv2.IMREAD_COLOR)
 
         # Normalize
-        hr_img = cv2.cvtColor(hr_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        lr_img = cv2.cvtColor(lr_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        hr_img = (
+            cv2.cvtColor(hr_img, cv2.COLOR_BGR2RGB)
+            .astype(np.float32) / 255.0
+        )
+        lr_img = (
+            cv2.cvtColor(lr_img, cv2.COLOR_BGR2RGB)
+            .astype(np.float32) / 255.0
+        )
 
         hr_h, hr_w, _ = hr_img.shape
         lr_h, lr_w, _ = lr_img.shape
 
         if mode == 'srcnn':
-            lr_up = cv2.resize(lr_img, (hr_w, hr_h), interpolation=upsample_interp)
+            lr_up = cv2.resize(
+                lr_img, (hr_w, hr_h), interpolation=upsample_interp
+            )
             
             # Add padding to ensure full coverage
             hr_proc = add_padding(hr_img, patch_size, stride)
@@ -142,11 +155,16 @@ def load_dataset_as_patches(
                     hr_i = i * scale_factor
                     hr_j = j * scale_factor
                     
-                    if (hr_i + patch_size_hr <= hr_h) and (hr_j + patch_size_hr <= hr_w):
-                        hr_patch = hr_proc[hr_i:hr_i+patch_size_hr, hr_j:hr_j+patch_size_hr]
+                    if ((hr_i + patch_size_hr <= hr_h)
+                        and (hr_j + patch_size_hr <= hr_w)):
+                        hr_patch = hr_proc[
+                            hr_i:hr_i + patch_size_hr,
+                            hr_j:hr_j + patch_size_hr,
+                        ]
                         
-                        if (lr_patch.shape[:2] == (patch_size, patch_size) and
-                                hr_patch.shape[:2] == (patch_size_hr, patch_size_hr)):
+                        if (lr_patch.shape[:2] == (patch_size, patch_size)
+                            and hr_patch.shape[:2] 
+                                == (patch_size_hr, patch_size_hr)):
                             X.append(lr_patch)
                             Y.append(hr_patch)
     

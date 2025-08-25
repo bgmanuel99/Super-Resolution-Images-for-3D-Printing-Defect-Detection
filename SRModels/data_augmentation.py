@@ -3,21 +3,30 @@ import numpy as np
 import tensorflow as tf
 
 class AdvancedAugmentGenerator(tf.keras.utils.Sequence):
-    def __init__(self, X, Y, batch_size=16, shuffle=True, use_mix=True):
+    def __init__(
+            self, 
+            X, 
+            Y, 
+            batch_size=16, 
+            shuffle=True, 
+            use_mix=True):
         """Advanced paired augmentation generator.
 
         Parameters
         ----------
         X, Y : np.ndarray
-            Input (LR) and target (HR) image tensors in range [0,1]. Shape: (N, H, W, C)
+            Input (LR) and target (HR) image tensors in range
+            [0,1]. Shape: (N, H, W, C)
         batch_size : int
             Batch size.
         shuffle : bool
             Whether to shuffle indices each epoch.
         use_mix : bool, default True
-            If True applies mixup/cutmix (heavy mode). If False, creates a "light" version
-            disabling mixup/cutmix while keeping per-image geometric/color transforms.
+            If True applies mixup/cutmix (heavy mode). If False,
+            creates a "light" version disabling mixup/cutmix while
+            keeping per-image geometric/color transforms.
         """
+        
         self.X = X
         self.Y = Y
         self.batch_size = batch_size
@@ -39,64 +48,96 @@ class AdvancedAugmentGenerator(tf.keras.utils.Sequence):
         lam = np.random.beta(alpha, alpha)
         idx = np.random.permutation(len(X))
         h, w = X.shape[1:3]
-        
-        cut_rat = np.sqrt(1. - lam)
+
+        cut_rat = np.sqrt(1.0 - lam)
         cut_w, cut_h = int(w * cut_rat), int(h * cut_rat)
         cx, cy = np.random.randint(w), np.random.randint(h)
-        
-        x1, y1 = np.clip(cx - cut_w // 2, 0, w), np.clip(cy - cut_h // 2, 0, h)
-        x2, y2 = np.clip(cx + cut_w // 2, 0, w), np.clip(cy + cut_h // 2, 0, h)
-        
+
+        x1, y1 = (
+            np.clip(cx - cut_w // 2, 0, w),
+            np.clip(cy - cut_h // 2, 0, h),
+        )
+        x2, y2 = (
+            np.clip(cx + cut_w // 2, 0, w),
+            np.clip(cy + cut_h // 2, 0, h),
+        )
+
         X_cut, Y_cut = X.copy(), Y.copy()
-        
+
         X_cut[:, y1:y2, x1:x2, :] = X[idx, y1:y2, x1:x2, :]
         Y_cut[:, y1:y2, x1:x2, :] = Y[idx, y1:y2, x1:x2, :]
-        
+
         return X_cut, Y_cut
 
     def _elastic_transform(self, image, alpha, sigma):
         random_state = np.random.RandomState(None)
         shape = image.shape[:2]
-        
-        dx = cv2.GaussianBlur((random_state.rand(*shape) * 2 - 1), (17, 17), sigma) * alpha
-        dy = cv2.GaussianBlur((random_state.rand(*shape) * 2 - 1), (17, 17), sigma) * alpha
+
+        noise_x = (random_state.rand(*shape) * 2 - 1)
+        noise_y = (random_state.rand(*shape) * 2 - 1)
+        dx = cv2.GaussianBlur(noise_x, (17, 17), sigma) * alpha
+        dy = cv2.GaussianBlur(noise_y, (17, 17), sigma) * alpha
         x, y = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]))
-        
+
         map_x = (x + dx).astype(np.float32)
         map_y = (y + dy).astype(np.float32)
-        
-        return cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+        return cv2.remap(
+            image,
+            map_x,
+            map_y,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REFLECT,
+        )
 
     def _random_perspective(self, image):
         h, w = image.shape[:2]
         margin = 0.1
-        
-        pts1 = np.float32([[0,0],[w,0],[0,h],[w,h]])
-        pts2 = pts1 + np.random.uniform(-margin*w, margin*w, pts1.shape).astype(np.float32)
-        
+
+        pts1 = np.float32([[0, 0], [w, 0], [0, h], [w, h]])
+        pts2 = pts1 + np.random.uniform(
+            -margin * w, margin * w, pts1.shape
+        ).astype(np.float32)
+
         M = cv2.getPerspectiveTransform(pts1, pts2)
-        
-        return cv2.warpPerspective(image, M, (w, h), borderMode=cv2.BORDER_REFLECT)
+
+        return cv2.warpPerspective(
+            image, M, (w, h), borderMode=cv2.BORDER_REFLECT
+        )
 
     def _color_augment(self, image):
         if np.random.rand() < 0.5:
-            img = cv2.cvtColor((image*255).astype(np.uint8), cv2.COLOR_RGB2HSV)
+            img = cv2.cvtColor(
+                (image * 255).astype(np.uint8), cv2.COLOR_RGB2HSV
+            )
             img = img.astype(np.float32)
-            img[...,0] = (img[...,0] + np.random.uniform(-10,10)) % 180
-            img[...,1] = np.clip(img[...,1] * np.random.uniform(0.8,1.2), 0, 255)
-            img[...,2] = np.clip(img[...,2] * np.random.uniform(0.8,1.2), 0, 255)
+            img[..., 0] = (img[..., 0] + np.random.uniform(-10, 10)) % 180
+            img[..., 1] = np.clip(
+                img[..., 1] * np.random.uniform(0.8, 1.2), 0, 255
+            )
+            img[..., 2] = np.clip(
+                img[..., 2] * np.random.uniform(0.8, 1.2), 0, 255
+            )
             img = cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_HSV2RGB)
-            
-            return img.astype(np.float32)/255.0
+
+            return img.astype(np.float32) / 255.0
         else:
-            img = cv2.cvtColor((image*255).astype(np.uint8), cv2.COLOR_RGB2LAB)
+            img = cv2.cvtColor(
+                (image * 255).astype(np.uint8), cv2.COLOR_RGB2LAB
+            )
             img = img.astype(np.float32)
-            img[...,0] = np.clip(img[...,0] + np.random.uniform(-10,10), 0, 255)
-            img[...,1] = np.clip(img[...,1] + np.random.uniform(-10,10), 0, 255)
-            img[...,2] = np.clip(img[...,2] + np.random.uniform(-10,10), 0, 255)
+            img[..., 0] = np.clip(
+                img[..., 0] + np.random.uniform(-10, 10), 0, 255
+            )
+            img[..., 1] = np.clip(
+                img[..., 1] + np.random.uniform(-10, 10), 0, 255
+            )
+            img[..., 2] = np.clip(
+                img[..., 2] + np.random.uniform(-10, 10), 0, 255
+            )
             img = cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_LAB2RGB)
-            
-            return img.astype(np.float32)/255.0
+
+            return img.astype(np.float32) / 255.0
         
     def _random_rotate(self, image, angle_range=15):
         angle = np.random.uniform(-angle_range, angle_range)
@@ -109,17 +150,26 @@ class AdvancedAugmentGenerator(tf.keras.utils.Sequence):
     def _random_zoom(self, image, zoom_range=(0.1, 0.3)):
         h, w = image.shape[:2]
         zx, zy = np.random.uniform(*zoom_range, 2)
-        
-        M = cv2.getRotationMatrix2D((w/2, h/2), 0, zx)
-        
-        zoomed = cv2.warpAffine(image, M, (w, h), borderMode=cv2.BORDER_REFLECT)
-        
+
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), 0, zx)
+
+        zoomed = cv2.warpAffine(
+            image, M, (w, h), borderMode=cv2.BORDER_REFLECT
+        )
+
         if zx < 1.0 or zy < 1.0:
-            pad_h = int((h - h*zx) // 2)
-            pad_w = int((w - w*zy) // 2)
-            zoomed = cv2.copyMakeBorder(zoomed, pad_h, pad_h, pad_w, pad_w, cv2.BORDER_REFLECT)
+            pad_h = int((h - h * zx) // 2)
+            pad_w = int((w - w * zy) // 2)
+            zoomed = cv2.copyMakeBorder(
+                zoomed,
+                pad_h,
+                pad_h,
+                pad_w,
+                pad_w,
+                cv2.BORDER_REFLECT,
+            )
             zoomed = zoomed[:h, :w]
-            
+
         return zoomed
 
     def _random_flip(self, image):
@@ -128,18 +178,28 @@ class AdvancedAugmentGenerator(tf.keras.utils.Sequence):
         
         return image
 
-    def _random_shift(self, image, width_shift_range=0.1, height_shift_range=0.1):
+    def _random_shift(
+        self, image, width_shift_range=0.1, height_shift_range=0.1
+    ):
         h, w = image.shape[:2]
-        
-        tx = np.random.uniform(-width_shift_range, width_shift_range) * w
-        ty = np.random.uniform(-height_shift_range, height_shift_range) * h
-        
+        tx = (
+            np.random.uniform(-width_shift_range, width_shift_range) * w
+        )
+        ty = (
+            np.random.uniform(-height_shift_range, height_shift_range) * h
+        )
+
         M = np.float32([[1, 0, tx], [0, 1, ty]])
         
         return cv2.warpAffine(image, M, (w, h), borderMode=cv2.BORDER_REFLECT)
 
     def _advanced_augment(self, X, Y):
-        """Apply advanced augmentations (optionally skipping mix strategies)."""
+        """Apply advanced augmentations.
+
+        Optionally skips mix strategies when light mode is
+        enabled (use_mix=False).
+        """
+        
         X_aug, Y_aug = X.copy(), Y.copy()
 
         # Heavy mixing strategies (can be disabled for light mode)
