@@ -35,9 +35,19 @@ def rmse(a, b):
     diff = a.astype(np.float32) - b.astype(np.float32)
     return float(sqrt(np.mean(diff * diff) + DEF_EPS))
 
+def _ensure_gray_f32(img):
+    if img.ndim == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    if img.dtype != np.float32:
+        img = img.astype(np.float32, copy=False)
+    if img.max() > 1.5:
+        img = img / 255.0
+    return img
+
 def sobel_mag(img):
-    gx = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
+    g = _ensure_gray_f32(img)
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
     return np.sqrt(gx * gx + gy * gy)
 
 def gradient_mse(hr, sr):

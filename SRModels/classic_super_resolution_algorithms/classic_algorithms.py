@@ -40,7 +40,7 @@ def back_projection(hr_image, lr_image, iterations=10):
         
     return np.clip(hr, 0, 255).astype(np.uint8)
 
-def nlm_run(hr_g):
+def non_local_means(hr_g):
     sigma_est = np.mean(estimate_sigma(hr_g, channel_axis=None))
     
     return denoise_nl_means(
