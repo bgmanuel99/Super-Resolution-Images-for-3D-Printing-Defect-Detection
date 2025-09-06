@@ -342,14 +342,24 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
         'psnr_mean', 'time_mean', etc. Missing metrics are treated as NaN
         and contribute zero to the score.
     maximize : list[str] or None
-        Metrics where higher values are better. Defaults to
-        MAXIMIZE_DEFAULT if None.
+        Metrics where higher values are better. If None, a comprehensive
+        set is selected dynamically from available metrics
+        (e.g., PSNR/SSIM means & maxima).
     minimize : list[str] or None
-        Metrics where lower values are better. Defaults to
-        MINIMIZE_DEFAULT if None.
+        Metrics where lower values are better. If None, a comprehensive
+        set is selected dynamically from available metrics
+        (e.g., time/memory stats, error metrics, variances, CI widths,
+        and deviations-to-1 for EPI/HF ratio).
     weights : dict[str, float] or None
         Optional per-metric weights that should sum (approximately) to 1.
         If None, all selected metrics receive equal weight.
+
+    Derived Metrics (auto when maximize/minimize are None)
+    -----------------------------------------------------
+    - psnr_ci_width = psnr_ci_high - psnr_ci_low (minimize)
+    - ssim_ci_width = ssim_ci_high - ssim_ci_low (minimize)
+    - epi_dev       = |epi_mean - 1| (minimize)
+    - hf_ratio_dev  = |hf_ratio_mean - 1| (minimize)
 
     Scoring Method
     --------------
@@ -375,6 +385,9 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
 
     Notes
     -----
+    - When explicit maximize/minimize lists are provided, they are used
+      as-is (no auto-augmentation). Defaults enable a richer composite
+      score using all available metrics.
     - Metrics with identical values across algorithms (max == min) have
       zero discriminative impact.
     - NaN metric values (or missing) are treated as zero contribution.
@@ -382,36 +395,92 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
     - This function does not modify `summary`; it produces ranking
       artifacts for reporting / visualization.
     """
-    
-    maximize = maximize or MAXIMIZE_DEFAULT
-    minimize = minimize or MINIMIZE_DEFAULT
-    metrics_all = list(dict.fromkeys(maximize + minimize))
 
-    values = {m: [] for m in metrics_all}
-    for alg, stats in summary.items():
-        for m in metrics_all:
-            values[m].append(stats.get(m, np.nan))
+    # Helper to read raw or derived metric value per algorithm
+    def _get_metric_value(stats: dict, metric: str) -> float:
+        if metric == 'psnr_ci_width':
+            lo = stats.get('psnr_ci_low', np.nan)
+            hi = stats.get('psnr_ci_high', np.nan)
+            return float(hi - lo) if np.isfinite(lo) and np.isfinite(hi) else np.nan
+        if metric == 'ssim_ci_width':
+            lo = stats.get('ssim_ci_low', np.nan)
+            hi = stats.get('ssim_ci_high', np.nan)
+            return float(hi - lo) if np.isfinite(lo) and np.isfinite(hi) else np.nan
+        if metric == 'epi_dev':
+            v = stats.get('epi_mean', np.nan)
+            return float(abs(v - 1.0)) if np.isfinite(v) else np.nan
+        if metric == 'hf_ratio_dev':
+            v = stats.get('hf_ratio_mean', np.nan)
+            return float(abs(v - 1.0)) if np.isfinite(v) else np.nan
+        return stats.get(metric, np.nan)
 
+    # Build dynamic defaults if not provided
+    if maximize is None and minimize is None:
+        # Gather present metrics across all algorithms
+        present = set()
+        for _alg, st in summary.items():
+            present.update(st.keys())
+
+        # Maximize candidates (quality):
+        maximize = [m for m in ['psnr_mean', 'psnr_max', 'ssim_mean', 'ssim_max'] if m in present]
+
+        # Minimize candidates (cost/errors/variability):
+        minimize_candidates = [
+            'time_mean', 'time_max', 'time_jitter', 'time_var',
+            'memory_mean', 'memory_max', 'memory_var',
+            'mae_mean', 'mae_max', 'rmse_mean', 'rmse_max',
+            'grad_mse_mean', 'kl_luma_mean', 'kl_color_mean',
+            'psnr_var', 'ssim_var',
+        ]
+        minimize = [m for m in minimize_candidates if m in present]
+
+        # Derived metrics if their components exist
+        has_psnr_ci = ('psnr_ci_low' in present) and ('psnr_ci_high' in present)
+        has_ssim_ci = ('ssim_ci_low' in present) and ('ssim_ci_high' in present)
+        if has_psnr_ci:
+            minimize.append('psnr_ci_width')
+        if has_ssim_ci:
+            minimize.append('ssim_ci_width')
+
+        # Deviations-to-1 for EPI and HF ratio
+        if 'epi_mean' in present:
+            minimize.append('epi_dev')
+        if 'hf_ratio_mean' in present:
+            minimize.append('hf_ratio_dev')
+    else:
+        # Use explicit lists exactly as provided
+        maximize = maximize or []
+        minimize = minimize or []
+
+    # Ordered unique union
+    metrics_all = list(dict.fromkeys(list(maximize) + list(minimize)))
+
+    # Compute bounds using raw/derived values
     bounds = {}
-    for m, vals in values.items():
+    for m in metrics_all:
+        vals = []
+        for _alg, st in summary.items():
+            vals.append(_get_metric_value(st, m))
         arr = np.array(vals, dtype=float)
-        valid = arr[~np.isnan(arr)]
+        valid = arr[np.isfinite(arr)]
         if valid.size == 0:
-            bounds[m] = ( np.nan, np.nan )
+            bounds[m] = (np.nan, np.nan)
         else:
             bounds[m] = (float(valid.min()), float(valid.max()))
 
+    # Default uniform weights if not provided
     if weights is None:
-        w_each = 1.0 / len(metrics_all)
+        w_each = 1.0 / max(1, len(metrics_all))
         weights = {m: w_each for m in metrics_all}
 
+    # Score per algorithm
     scores = {}
     for alg, stats in summary.items():
         total = 0.0
         for m in metrics_all:
-            val = stats.get(m, np.nan)
+            val = _get_metric_value(stats, m)
             lo, hi = bounds[m]
-            if np.isnan(val) or np.isnan(lo) or np.isnan(hi) or hi - lo == 0:
+            if not np.isfinite(val) or not np.isfinite(lo) or not np.isfinite(hi) or hi - lo == 0:
                 norm = 0.0
             else:
                 if m in maximize:
@@ -423,5 +492,5 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
         scores[alg] = total
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    
+
     return ranked, scores, bounds

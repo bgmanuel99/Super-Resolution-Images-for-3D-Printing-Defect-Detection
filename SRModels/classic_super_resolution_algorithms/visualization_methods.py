@@ -1,3 +1,5 @@
+import os
+import sys
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,6 +7,10 @@ from pathlib import Path
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from skimage.metrics import structural_similarity as ssim
+
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
+
+from SRModels.classic_super_resolution_algorithms.profiling_methods import *
 
 def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_title, outfile, figsize=(18, 9)):
     """
@@ -558,3 +564,117 @@ def plot_and_save_ssim_similarity_maps(vis, ibp_example, nlm_example, egi_exampl
     plt.tight_layout()
     out_diff = results_dir / 'ssim_similarity_maps.png'
     plt.savefig(out_diff, dpi=150)
+    
+def show_algorithm_ranking(metric_summary, maximize=None, minimize=None, weights=None, results_dir=None):
+    """
+    Compute and display ranking using rank_algorithms(summary, maximize, minimize, weights).
+
+    Visual outputs:
+      - Horizontal bar chart of aggregate scores (descending order).
+      - Heatmap of per-metric normalized contributions (weight * normalized value)
+        for each algorithm, using the same metrics selected by rank_algorithms.
+
+    Returns (ranked, scores, bounds) as rank_algorithms does.
+    """
+
+    # Run ranking
+    ranked, scores, bounds = rank_algorithms(
+        summary=metric_summary, maximize=maximize, minimize=minimize, weights=weights
+    )
+
+    # Print ranking
+    print('Ranking (best to worst):')
+    for i, (alg, score) in enumerate(ranked, start=1):
+        print(f'{i:2d}. {alg:10s}  score={score:.4f}')
+
+    # Prepare visualization artifacts
+    alg_order = [alg for alg, _ in ranked]
+    score_vals = [scores[a] for a in alg_order]
+
+    # Metrics used by rank_algorithms are the keys of bounds (order preserved)
+    metrics_all = list(bounds.keys())
+
+    # Direction sets: use provided maximize/minimize if given; else infer
+    if maximize is not None or minimize is not None:
+        max_set = set(maximize or [])
+        min_set = set(minimize or [])
+    else:
+        # Infer defaults consistent with rank_algorithms auto selection
+        max_candidates = {'psnr_mean', 'psnr_max', 'ssim_mean', 'ssim_max'}
+        derived_minimize = {'psnr_ci_width', 'ssim_ci_width', 'epi_dev', 'hf_ratio_dev'}
+        max_set = set(m for m in metrics_all if m in max_candidates)
+        # Everything else minimized unless explicitly in max_set
+        min_set = set(m for m in metrics_all if m not in max_set)
+        # Ensure derived minimize metrics are included when present
+        min_set.update(derived_minimize.intersection(metrics_all))
+
+    # Helper to compute raw/derived metric values
+    def _get_metric_value(stats: dict, metric: str) -> float:
+        if metric == 'psnr_ci_width':
+            lo = stats.get('psnr_ci_low', np.nan)
+            hi = stats.get('psnr_ci_high', np.nan)
+            return float(hi - lo) if np.isfinite(lo) and np.isfinite(hi) else np.nan
+        if metric == 'ssim_ci_width':
+            lo = stats.get('ssim_ci_low', np.nan)
+            hi = stats.get('ssim_ci_high', np.nan)
+            return float(hi - lo) if np.isfinite(lo) and np.isfinite(hi) else np.nan
+        if metric == 'epi_dev':
+            v = stats.get('epi_mean', np.nan)
+            return float(abs(v - 1.0)) if np.isfinite(v) else np.nan
+        if metric == 'hf_ratio_dev':
+            v = stats.get('hf_ratio_mean', np.nan)
+            return float(abs(v - 1.0)) if np.isfinite(v) else np.nan
+        return stats.get(metric, np.nan)
+
+    # Weights for contributions
+    if weights is None:
+        w_each = 1.0 / max(1, len(metrics_all))
+        weights_used = {m: w_each for m in metrics_all}
+    else:
+        # Use provided weights; default 0 for missing
+        weights_used = {m: float(weights.get(m, 0.0)) for m in metrics_all}
+
+    # Build contributions matrix [alg, metric] = weight * normalized(metric)
+    contrib = np.zeros((len(alg_order), len(metrics_all)), dtype=float)
+    for j, m in enumerate(metrics_all):
+        lo, hi = bounds[m]
+        rng = hi - lo if (np.isfinite(hi) and np.isfinite(lo)) else np.nan
+        for i, alg in enumerate(alg_order):
+            val = _get_metric_value(metric_summary[alg], m)
+            if not np.isfinite(val) or not np.isfinite(lo) or not np.isfinite(hi) or rng == 0:
+                norm = 0.0
+            else:
+                if m in max_set and m not in min_set:
+                    norm = (val - lo) / (hi - lo)
+                else:
+                    norm = (hi - val) / (hi - lo)
+                norm = float(np.clip(norm, 0.0, 1.0))
+            contrib[i, j] = weights_used[m] * norm
+
+    # Plot: scores bar + contributions heatmap
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), constrained_layout=True, gridspec_kw={'width_ratios': [1, 1.6]})
+
+    # Left: aggregate scores barh
+    ax0 = axes[0]
+    y = np.arange(len(alg_order))
+    ax0.barh(y, score_vals, color=['#4c72b0'] * len(alg_order))
+    ax0.set_yticks(y)
+    ax0.set_yticklabels(alg_order)
+    ax0.invert_yaxis()
+    ax0.set_xlabel('Aggregate score')
+    ax0.set_title('Ranking scores')
+
+    # Right: heatmap of per-metric contributions
+    ax1 = axes[1]
+    im = ax1.imshow(contrib, aspect='auto', cmap='viridis')
+    ax1.set_yticks(np.arange(len(alg_order)))
+    ax1.set_yticklabels(alg_order)
+    ax1.set_xticks(np.arange(len(metrics_all)))
+    ax1.set_xticklabels(metrics_all, rotation=45, ha='right', fontsize=8)
+    ax1.set_title('Per-metric contribution (weight × normalized)')
+    cbar = plt.colorbar(im, ax=ax1, fraction=0.046, pad=0.04)
+    cbar.ax.set_ylabel('Contribution', rotation=90)
+
+    plt.show()
+
+    return ranked, scores, bounds
