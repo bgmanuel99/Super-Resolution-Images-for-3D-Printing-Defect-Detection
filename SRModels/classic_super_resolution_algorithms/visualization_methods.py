@@ -318,3 +318,103 @@ def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_d
             fig.savefig(out_fig, dpi=150, bbox_inches='tight')
         except Exception:
             pass
+
+
+
+def plot_edge_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(12, 5)):
+    """
+    Display and save a 1x2 grid with mean values of Gradient MSE and EPI across algorithms.
+
+    Panels:
+      [0] Gradient MSE Mean (lower is better)
+      [1] Edge Preservation Index (EPI) Mean (≈1 is ideal)
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from pathlib import Path
+
+    grad_mse_mean = [metric_summary[a].get('grad_mse_mean', np.nan) for a in algorithms]
+    epi_mean = [metric_summary[a].get('epi_mean', np.nan) for a in algorithms]
+
+    def _bar(ax, data, title, fmt='{:.4g}'):
+        x = np.arange(len(algorithms))
+        bars = ax.bar(x, data, color=[colors[a] for a in algorithms])
+        ax.set_title(title)
+        ax.set_xticks(x)
+        ax.set_xticklabels(algorithms, rotation=30, ha='right')
+        bottom, top = ax.get_ylim()
+        span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
+        pad = 0.01 * span
+        ymax = -np.inf
+        for rect, val in zip(bars, data):
+            if not np.isfinite(val):
+                continue
+            y = rect.get_height() + pad
+            ax.text(rect.get_x() + rect.get_width()/2, y, fmt.format(val), ha='center', va='bottom', fontsize=8)
+            ymax = max(ymax, y)
+        if np.isfinite(ymax) and ymax > ax.get_ylim()[1]:
+            bottom, _ = ax.get_ylim()
+            ax.set_ylim(top=ymax + max(0.02 * (ymax - bottom), 0.02))
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    _bar(axes[0], grad_mse_mean, 'Gradient MSE Mean') # Lower values are better
+    _bar(axes[1], epi_mean, 'Edge Preservation Index (EPI) Mean') # Values closer to 1 are better
+
+    fig.suptitle('Edge/Gradient Metrics: Mean Values')
+    if results_dir is not None:
+        try:
+            out = Path(results_dir) / 'edge_gradient_metrics_mean.png'
+            fig.savefig(out, dpi=150, bbox_inches='tight')
+        except Exception:
+            pass
+    plt.show()
+
+def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(16, 5)):
+    """
+    Display and save a 1x3 grid with mean values of:
+      - HF Energy Ratio mean (relative)
+      - KL Luma mean
+      - KL Color mean (may be NaN for grayscale-only methods)
+    across algorithms.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from pathlib import Path
+
+    hf_ratio_mean = [metric_summary[a].get('hf_ratio_mean', np.nan) for a in algorithms]
+    kl_luma_mean = [metric_summary[a].get('kl_luma_mean', np.nan) for a in algorithms]
+    kl_color_mean = [metric_summary[a].get('kl_color_mean', np.nan) for a in algorithms]
+
+    def _bar(ax, data, title, fmt='{:.4g}'):
+        x = np.arange(len(algorithms))
+        bars = ax.bar(x, data, color=[colors[a] for a in algorithms])
+        ax.set_title(title)
+        ax.set_xticks(x)
+        ax.set_xticklabels(algorithms, rotation=30, ha='right')
+        bottom, top = ax.get_ylim()
+        span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
+        pad = 0.01 * span
+        ymax = -np.inf
+        for rect, val in zip(bars, data):
+            if not np.isfinite(val):
+                continue
+            y = rect.get_height() + pad
+            ax.text(rect.get_x() + rect.get_width()/2, y, fmt.format(val), ha='center', va='bottom', fontsize=8)
+            ymax = max(ymax, y)
+        if np.isfinite(ymax) and ymax > ax.get_ylim()[1]:
+            bottom, _ = ax.get_ylim()
+            ax.set_ylim(top=ymax + max(0.02 * (ymax - bottom), 0.02))
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
+    _bar(axes[0], hf_ratio_mean, 'High-Frequency Energy Ratio Mean (relative)')
+    _bar(axes[1], kl_luma_mean, 'KL Divergence (Luma) Mean') # Lower is better
+    _bar(axes[2], kl_color_mean, 'KL Divergence (Color) Mean') # Lower is better
+
+    fig.suptitle('Frequency/Distribution Metrics: Mean Values')
+    if results_dir is not None:
+        try:
+            out = Path(results_dir) / 'freq_distribution_metrics_mean.png'
+            fig.savefig(out, dpi=150, bbox_inches='tight')
+        except Exception:
+            pass
+    plt.show()
