@@ -453,7 +453,11 @@ def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors,
 
     hf_ratio_mean = [metric_summary[a].get('hf_ratio_mean', np.nan) for a in algorithms]
     kl_luma_mean = [metric_summary[a].get('kl_luma_mean', np.nan) for a in algorithms]
-    kl_color_mean = [metric_summary[a].get('kl_color_mean', np.nan) for a in algorithms]
+    # We'll draw KL Color only for interpolation methods (hide IBP, NLM, EGI, FREQ)
+    interp_set = {'bilinear', 'bicubic', 'area', 'lanczos'}
+    algorithms_color = [a for a in algorithms if a in interp_set]
+    kl_color_mean_full = {a: metric_summary[a].get('kl_color_mean', np.nan) for a in algorithms}
+    kl_color_mean_subset = [kl_color_mean_full[a] for a in algorithms_color]
 
     def _bar(ax, data, title, fmt='{:.4g}'):
         x = np.arange(len(algorithms))
@@ -478,7 +482,28 @@ def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors,
     fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
     _bar(axes[0], hf_ratio_mean, 'High-Frequency Energy Ratio Mean (relative)')
     _bar(axes[1], kl_luma_mean, 'KL Divergence (Luma) Mean') # Lower is better
-    _bar(axes[2], kl_color_mean, 'KL Divergence (Color) Mean') # Lower is better
+
+    # Third subplot: KL Color, only for interpolation methods
+    ax2 = axes[2]
+    x_sub = np.arange(len(algorithms_color))
+    bars = ax2.bar(x_sub, kl_color_mean_subset, color=[colors[a] for a in algorithms_color])
+    ax2.set_title('KL Divergence (Color) Mean') # Lower is better
+    ax2.set_xticks(x_sub)
+    ax2.set_xticklabels(algorithms_color, rotation=30, ha='right')
+    # Annotate with dynamic headroom similar to other bars
+    bottom, top = ax2.get_ylim()
+    span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
+    pad = 0.01 * span
+    ymax = -np.inf
+    for rect, val in zip(bars, kl_color_mean_subset):
+        if not np.isfinite(val):
+            continue
+        y = rect.get_height() + pad
+        ax2.text(rect.get_x() + rect.get_width()/2, y, f'{val:.4g}', ha='center', va='bottom', fontsize=8)
+        ymax = max(ymax, y)
+    if np.isfinite(ymax) and ymax > ax2.get_ylim()[1]:
+        bottom, _ = ax2.get_ylim()
+        ax2.set_ylim(top=ymax + max(0.02 * (ymax - bottom), 0.02))
 
     fig.suptitle('Frequency/Distribution Metrics: Mean Values')
     if results_dir is not None:
@@ -566,13 +591,14 @@ def plot_and_save_ssim_similarity_maps(vis, ibp_example, nlm_example, egi_exampl
     plt.savefig(out_diff, dpi=150)
     
 def show_algorithm_ranking(
-        metric_summary,
-        maximize=None,
-        minimize=None,
-        weights=None,
-        results_dir=None,
-        filename='algorithm_ranking_panel.png',
-        dpi=150):
+    metric_summary,
+    maximize=None,
+    minimize=None,
+    weights=None,
+    results_dir=None,
+    filename='algorithm_ranking_panel.png',
+    dpi=150,
+    colors_map=None):
     """
     Compute and display ranking using rank_algorithms(summary, maximize, minimize, weights).
 
@@ -668,7 +694,16 @@ def show_algorithm_ranking(
     # Left: aggregate scores barh
     ax0 = axes[0]
     y = np.arange(len(alg_order))
-    ax0.barh(y, score_vals, color=['#4c72b0'] * len(alg_order))
+    # Build per-algorithm colors
+    if colors_map is not None:
+        bar_colors = [colors_map.get(a, '#4c72b0') for a in alg_order]
+    else:
+        # Fallback to a matplotlib categorical palette with enough distinct colors
+        cmap_name = 'tab20' if len(alg_order) > 10 else 'tab10'
+        cmap = plt.get_cmap(cmap_name, len(alg_order))
+        bar_colors = [cmap(i) for i in range(len(alg_order))]
+
+    ax0.barh(y, score_vals, color=bar_colors, edgecolor='k', linewidth=0.6)
     ax0.set_yticks(y)
     ax0.set_yticklabels(alg_order)
     ax0.invert_yaxis()
@@ -677,7 +712,7 @@ def show_algorithm_ranking(
 
     # Right: heatmap of per-metric contributions
     ax1 = axes[1]
-    im = ax1.imshow(contrib, aspect='auto', cmap='viridis')
+    im = ax1.imshow(contrib, aspect='auto', cmap='magma')
     ax1.set_yticks(np.arange(len(alg_order)))
     ax1.set_yticklabels(alg_order)
     ax1.set_xticks(np.arange(len(metrics_all)))
@@ -686,14 +721,14 @@ def show_algorithm_ranking(
     cbar = plt.colorbar(im, ax=ax1, fraction=0.046, pad=0.04)
     cbar.ax.set_ylabel('Contribution', rotation=90)
 
-    plt.show()
-    
     # Optional: save panel
     if results_dir is not None:
         try:
-            out_diff = results_dir / 'algorithm_ranking.png'
-            plt.savefig(out_diff, dpi=150)
+            out_path = Path(results_dir) / filename
+            fig.savefig(out_path, dpi=dpi, bbox_inches='tight')
         except Exception:
             pass
+
+    plt.show()
 
     return ranked, scores, bounds
