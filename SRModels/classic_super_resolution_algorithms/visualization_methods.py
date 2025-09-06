@@ -1,8 +1,10 @@
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from skimage.metrics import structural_similarity as ssim
 
 def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_title, outfile, figsize=(18, 9)):
     """
@@ -480,3 +482,79 @@ def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors,
         except Exception:
             pass
     plt.show()
+    
+def plot_and_save_super_resolution_example(vis, ibp_example, nlm_example, egi_example, freq_example, results_dir):
+    hr_img_v, lr_img_v, bilinear_v, bicubic_v, area_v, lanczos_v = vis
+    hr_g_v, lr_g_v, ibp_v = ibp_example
+    hr_v, nlm_v = nlm_example
+    hr_egi_v, lr_egi_v, egi_v = egi_example
+    hr_freq_v, freq_v = freq_example
+
+    def to_display(img):
+        if img.ndim == 2:
+            return img if img.dtype != np.float32 else np.clip(img, 0, 1)
+        return img
+
+    images = [
+        ('HR', hr_img_v),
+        ('LR', lr_img_v),
+        ('Bilinear', bilinear_v),
+        ('Bicubic', bicubic_v),
+        ('Area', area_v),
+        ('Lanczos', lanczos_v),
+        ('IBP', ibp_v),
+        ('NLM', nlm_v if nlm_v.ndim == 3 else nlm_v),
+        ('EGI', egi_v),
+        ('FREQ', freq_v),
+    ]
+
+    plt.figure(figsize=(18, 7))
+    for i, (title, img) in enumerate(images, start=1):
+        plt.subplot(2, 5, i)
+        cmap = 'gray' if img.ndim == 2 else None
+        plt.imshow(img, cmap=cmap)
+        plt.title(title)
+        plt.axis('off')
+    plt.tight_layout()
+    out_grid = results_dir / 'super_resolution_example.png'
+    plt.savefig(out_grid, dpi=150)
+    
+def plot_and_save_ssim_similarity_maps(vis, ibp_example, nlm_example, egi_example, freq_example, results_dir):
+    def to_gray(img):
+        return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) if img.ndim == 3 else img
+
+    hr_img_v, lr_img_v, bilinear_v, bicubic_v, area_v, lanczos_v = vis
+    hr_g_v, lr_g_v, ibp_v = ibp_example
+    hr_v, nlm_v = nlm_example
+    hr_egi_v, lr_egi_v, egi_v = egi_example
+    hr_freq_v, freq_v = freq_example
+
+    # Lista de pares (nombre, HR, SR) en el orden requerido
+    pairs = [
+        ('Bilinear', to_gray(hr_img_v), to_gray(bilinear_v)),
+        ('Bicubic',  to_gray(hr_img_v), to_gray(bicubic_v)),
+        ('Area',     to_gray(hr_img_v), to_gray(area_v)),
+        ('Lanczos',  to_gray(hr_img_v), to_gray(lanczos_v)),
+        ('IBP',      hr_g_v, ibp_v),
+        ('NLM',      hr_v, nlm_v if nlm_v.ndim == 2 else cv2.cvtColor(nlm_v, cv2.COLOR_RGB2GRAY)),
+        ('EGI',      hr_egi_v, egi_v),
+        ('FREQ',     hr_freq_v, freq_v),
+    ]
+
+    ssim_maps = []
+    titles = []
+    for name, hr_g, sr_g in pairs:
+        data_range = 255 if hr_g.dtype != np.float32 else 1.0
+        val, ssim_map = ssim(hr_g, sr_g, data_range=data_range, full=True)
+        ssim_maps.append((ssim_map, val))
+        titles.append(name)
+
+    plt.figure(figsize=(20, 6))
+    for i, ((ssim_map, val), name) in enumerate(zip(ssim_maps, titles), start=1):
+        plt.subplot(2, 4, i)
+        plt.imshow(ssim_map, cmap='gray', vmin=0, vmax=1)
+        plt.title(f"{name}\nSSIM={val:.4f}")
+        plt.axis('off')
+    plt.tight_layout()
+    out_diff = results_dir / 'ssim_similarity_maps.png'
+    plt.savefig(out_diff, dpi=150)
