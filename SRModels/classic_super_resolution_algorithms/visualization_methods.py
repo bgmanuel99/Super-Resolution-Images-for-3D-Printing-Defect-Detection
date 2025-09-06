@@ -319,7 +319,69 @@ def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_d
         except Exception:
             pass
 
+def plot_error_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(14, 8)):
+    """
+    Display and save a 2x2 grid with MAE/RMSE mean and max across algorithms.
 
+    Panels (row-major):
+      [0,0] MAE Mean
+      [0,1] MAE Max
+      [1,0] RMSE Mean
+      [1,1] RMSE Max
+    """
+
+    # Collect values strictly from metric_summary
+    mae_mean = [metric_summary[a].get('mae_mean', np.nan) for a in algorithms]
+    mae_max  = [metric_summary[a].get('mae_max',  np.nan) for a in algorithms]
+    rmse_mean = [metric_summary[a].get('rmse_mean', np.nan) for a in algorithms]
+    rmse_max  = [metric_summary[a].get('rmse_max',  np.nan) for a in algorithms]
+
+    def _bar(ax, data, title, fmt='{:.4g}'):
+        x = np.arange(len(algorithms))
+        # Pre-compute dynamic limits with headroom for labels
+        data_arr = np.array(data, dtype=float)
+        valid = data_arr[np.isfinite(data_arr)]
+        if valid.size:
+            ymin = 0.0 if valid.min() >= 0 else float(valid.min())
+            span = float(valid.max() - ymin)
+            if not np.isfinite(span) or span <= 0:
+                span = 1.0
+            margin = 0.10 * span  # headroom for text above bars
+            ax.set_ylim(ymin, float(valid.max()) + margin)
+        bars = ax.bar(x, data, color=[colors[a] for a in algorithms])
+        ax.set_title(title)
+        ax.set_xticks(x)
+        ax.set_xticklabels(algorithms, rotation=30, ha='right')
+        # annotate
+        bottom, top = ax.get_ylim()
+        span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
+        pad = 0.02 * span
+        max_needed = -np.inf
+        for rect, val in zip(bars, data):
+            if not (isinstance(val, (int, float)) and np.isfinite(val)):
+                continue
+            label_y = rect.get_height() + pad * 0.6
+            ax.text(rect.get_x() + rect.get_width()/2, label_y, fmt.format(val), ha='center', va='bottom', fontsize=8)
+            max_needed = max(max_needed, label_y)
+        # If labels would overflow, expand top with a small extra
+        if np.isfinite(max_needed) and max_needed > top:
+            extra = max(0.03 * (max_needed - bottom), 0.03)
+            ax.set_ylim(bottom, max_needed + extra)
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
+    _bar(axes[0,0], mae_mean, 'MAE Mean') # Lower is better
+    _bar(axes[0,1], mae_max,  'MAE Max') # Lower is better
+    _bar(axes[1,0], rmse_mean,'RMSE Mean') # Lower is better
+    _bar(axes[1,1], rmse_max, 'RMSE Max') # Lower is better
+
+    fig.suptitle('Error Metrics: MAE & RMSE (Mean/Max)')
+    if results_dir is not None:
+        try:
+            out = Path(results_dir) / 'error_metrics_mae_rmse.png'
+            fig.savefig(out, dpi=150, bbox_inches='tight')
+        except Exception:
+            pass
+    plt.show()
 
 def plot_edge_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(12, 5)):
     """
