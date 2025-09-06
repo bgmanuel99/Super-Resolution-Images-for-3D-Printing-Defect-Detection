@@ -41,15 +41,21 @@ def back_projection(hr_image, lr_image, iterations=10):
         
     return np.clip(hr, 0, 255).astype(np.uint8)
 
-def non_local_means(hr_g):
-    sigma_est = np.mean(estimate_sigma(hr_g, channel_axis=None))
-    
-    return denoise_nl_means(
-        img_as_float(hr_g),
+def non_local_means(hr_g, lr_g):
+    sigma_est = np.mean(estimate_sigma(lr_g, channel_axis=None))
+
+    denoised = denoise_nl_means(
+        img_as_float(lr_g),
         h=1.15 * sigma_est,
         patch_size=5,
         patch_distance=6,
         fast_mode=True,
+    )
+
+    return cv2.resize(
+        denoised, 
+        (hr_g.shape[1], hr_g.shape[0]), 
+        interpolation=cv2.INTER_LANCZOS4
     )
 
 def edge_guided_interpolation(ground_truth, image):
