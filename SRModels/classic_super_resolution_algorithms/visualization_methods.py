@@ -4,32 +4,53 @@ from pathlib import Path
 
 def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_title, outfile, figsize=(18, 9)):
     """
-    Plot a 2x2 grid for Time & Memory stats and save to file.
-    Panels:
-      1) Average Time (s)
-      2) Max Time (s)
-      3) Average Peak Memory (MB)
-      4) Max Peak Memory (MB)
+    Plot Time & Memory stats and save to file.
+
+    Panels included (row-major order):
+        Row 1:
+            1) Average Time (s)
+            2) Max Time (s)
+            3) Time Jitter (std/mean)
+        Row 2:
+            4) Average Peak Memory (MB)
+            5) Max Peak Memory (MB)
+            6) Memory Variance (MB^2)
     """
-    
-    means_time = [metric_summary[a]['time_mean'] for a in algorithms_order]
-    maxs_time  = [metric_summary[a]['time_max']  for a in algorithms_order]
-    mem_mean_mb = [metric_summary[a]['memory_mean'] / (1024**2) for a in algorithms_order]
-    mem_max_mb  = [metric_summary[a]['memory_max']  / (1024**2) for a in algorithms_order]
-    
+
+    means_time   = [metric_summary[a]['time_mean'] for a in algorithms_order]
+    maxs_time    = [metric_summary[a]['time_max']  for a in algorithms_order]
+    time_jitter  = [metric_summary[a].get('time_jitter', np.nan) for a in algorithms_order]
+    mem_mean_mb  = [metric_summary[a]['memory_mean'] / (1024**2) for a in algorithms_order]
+    mem_max_mb   = [metric_summary[a]['memory_max']  / (1024**2) for a in algorithms_order]
+    mem_var_mb2  = [metric_summary[a].get('memory_var', np.nan) / ((1024**2) ** 2) for a in algorithms_order]
+
+    # Order panels to match requested layout
     stat_groups = [
         (means_time,  'Average Time (s)', '{:.3g}'),
         (maxs_time,   'Max Time (s)', '{:.3g}'),
+        (time_jitter, 'Time Jitter (std/mean)', '{:.3g}'),
         (mem_mean_mb, 'Average Peak Memory (MB)', '{:.6f}'),
         (mem_max_mb,  'Max Peak Memory (MB)', '{:.6f}'),
+        (mem_var_mb2, 'Memory Variance (MB^2)', '{:.6g}'),
     ]
 
     x = np.arange(len(algorithms_order))
 
-    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
+    # Choose a dynamic layout based on number of panels
+    n_panels = len(stat_groups)
+    if n_panels <= 4:
+        rows, cols = 2, 2
+    elif n_panels <= 6:
+        rows, cols = 2, 3
+    else:
+        cols = 3
+        rows = int(np.ceil(n_panels / cols))
+
+    fig, axes = plt.subplots(rows, cols, figsize=figsize, constrained_layout=True)
+    axes_arr = np.array(axes).reshape(-1) if isinstance(axes, np.ndarray) else np.array([axes])
 
     for idx, (data, subtitle, fmt) in enumerate(stat_groups):
-        ax = axes[idx // 2, idx % 2]
+        ax = axes_arr[idx]
         bars = ax.bar(x, data, color=[colors_map[a] for a in algorithms_order])
         ax.set_title(subtitle)
         ax.set_xticks(x)
@@ -56,6 +77,9 @@ def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_t
             if max_label_y > cur_top:
                 extra = max(0.02 * (max_label_y - cur_bottom), 0.02)
                 ax.set_ylim(top=max_label_y + extra)
+    
+    for j in range(n_panels, len(axes_arr)):
+        axes_arr[j].axis('off')
 
     fig.suptitle(main_title, fontsize=14)
 
