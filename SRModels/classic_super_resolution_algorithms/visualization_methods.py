@@ -565,7 +565,14 @@ def plot_and_save_ssim_similarity_maps(vis, ibp_example, nlm_example, egi_exampl
     out_diff = results_dir / 'ssim_similarity_maps.png'
     plt.savefig(out_diff, dpi=150)
     
-def show_algorithm_ranking(metric_summary, maximize=None, minimize=None, weights=None, results_dir=None):
+def show_algorithm_ranking(
+        metric_summary,
+        maximize=None,
+        minimize=None,
+        weights=None,
+        results_dir=None,
+        filename='algorithm_ranking_panel.png',
+        dpi=150):
     """
     Compute and display ranking using rank_algorithms(summary, maximize, minimize, weights).
 
@@ -574,7 +581,11 @@ def show_algorithm_ranking(metric_summary, maximize=None, minimize=None, weights
       - Heatmap of per-metric normalized contributions (weight * normalized value)
         for each algorithm, using the same metrics selected by rank_algorithms.
 
-    Returns (ranked, scores, bounds) as rank_algorithms does.
+        Saving:
+            - If results_dir is provided, saves the two-subplot panel to
+                results_dir/filename (default: algorithm_ranking_panel.png) with dpi.
+
+        Returns (ranked, scores, bounds) as rank_algorithms does.
     """
 
     # Run ranking
@@ -676,5 +687,13 @@ def show_algorithm_ranking(metric_summary, maximize=None, minimize=None, weights
     cbar.ax.set_ylabel('Contribution', rotation=90)
 
     plt.show()
+    
+    # Optional: save panel
+    if results_dir is not None:
+        try:
+            out_diff = results_dir / 'algorithm_ranking.png'
+            plt.savefig(out_diff, dpi=150)
+        except Exception:
+            pass
 
     return ranked, scores, bounds
