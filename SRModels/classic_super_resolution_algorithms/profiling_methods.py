@@ -191,14 +191,14 @@ def bootstrap_ci(values, n_boot=1000, ci=0.95, seed=42):
     drawn; its mean is stored. After n_boot iterations the desired
     percentile bounds are taken from the distribution of bootstrapped means.
     """
-    
-    if values.size < 2:
+
+    if len(values) < 2:
         return (np.nan, np.nan)
     
     rng = np.random.default_rng(seed)
     stats = []
     for _ in range(n_boot):
-        sample = rng.choice(values, size=values.size, replace=True)
+        sample = rng.choice(values, size=len(values), replace=True)
         stats.append(sample.mean())
     
     lower_p = (1.0 - ci) / 2.0 * 100.0
@@ -238,12 +238,12 @@ def compute_summary_stats(values):
     """
     
     return {
-        'mean': float(values.mean()),
+        'mean': float(np.mean(values)),
         'median': float(np.median(values)),
-        'max': float(values.max()),
-        'std': float(values.std(ddof=1)) if values.size > 1 else 0.0,
-        'var': float(values.var(ddof=1)) if values.size > 1 else 0.0,
-        'count': int(values.size)
+        'max': float(np.max(values)),
+        'std': float(np.std(values, ddof=1)) if len(values) > 1 else 0.0,
+        'var': float(np.var(values, ddof=1)) if len(values) > 1 else 0.0,
+        'count': int(len(values))
     }
 
 def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
