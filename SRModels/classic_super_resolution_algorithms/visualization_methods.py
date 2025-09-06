@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_title, outfile, figsize=(18, 9)):
     """
@@ -191,3 +193,128 @@ def plot_psnr_ssim_panels(metric_summary, algorithms_order, colors_map, main_tit
 
     if outfile:
         fig.savefig(Path(outfile), dpi=150, bbox_inches='tight')
+        
+def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_dir=None,
+                                   save=True, figsize=(10, 8), view=(22, -55)):
+    """
+    Plot a 3D Speed–Quality trade-off:
+      - X: mean time (s)
+      - Y: PSNR mean (dB)
+      - Z: SSIM mean
+      - Marker size ∝ mean memory (MB)
+
+    Inputs:
+      - metric_summary: dict keyed by algorithm with keys: time_mean, psnr_mean, ssim_mean, memory_mean
+      - algorithms: list[str] order to plot
+      - colors: dict[str, str] algorithm -> color
+      - results_dir: directory to save figure (optional)
+      - save: whether to save the figure to results_dir/speed_quality_tradeoff_3d.png
+      - figsize: tuple for figure size
+      - view: (elev, azim) for 3D view
+
+    Returns: (fig, ax)
+    """
+    # Prepare data
+    x_time = [metric_summary[a]['time_mean'] for a in algorithms]
+    y_psnr = [metric_summary[a]['psnr_mean'] for a in algorithms]
+    z_ssim = [metric_summary[a]['ssim_mean'] for a in algorithms]
+    mem_mb = [
+        (metric_summary[a]['memory_mean'] or 0.0) / (1024**2)
+        if metric_summary[a]['memory_mean'] is not None else np.nan
+        for a in algorithms
+    ]
+
+    color_list = [colors[a] for a in algorithms]
+
+    # Size mapping (memory -> marker size)
+    mem_arr = np.array(mem_mb, dtype=float)
+    mem_arr = np.nan_to_num(mem_arr, nan=0.0, posinf=0.0, neginf=0.0)
+    m_min, m_max = float(mem_arr.min()), float(mem_arr.max())
+    size_min, size_max = 40.0, 240.0
+    den = (m_max - m_min) if (m_max - m_min) > 1e-12 else 1.0
+    sizes = size_min + (size_max - size_min) * (mem_arr - m_min) / den
+
+    # Plot 3D scatter
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(x_time, y_psnr, z_ssim, s=sizes, c=color_list, alpha=0.9, edgecolors='k', linewidth=0.6)
+
+    # Axis labels and title
+    ax.set_xlabel('Time Mean (s)')
+    ax.set_ylabel('PSNR Mean (dB)')
+    ax.set_zlabel('SSIM Mean')
+    ax.set_title('Speed–Quality Trade-off (3D: Time–PSNR–SSIM)')
+
+    # View and panes
+    ax.view_init(elev=view[0], azim=view[1])
+    ax.xaxis.pane.set_facecolor((0.95, 0.95, 1.0, 0.4))
+    ax.yaxis.pane.set_facecolor((0.95, 1.0, 0.95, 0.4))
+    ax.zaxis.pane.set_facecolor((1.0, 0.95, 0.95, 0.4))
+    ax.grid(True, linestyle=':', alpha=0.6)
+
+    # Padded limits
+    def _pad(vs, pad_frac=0.05):
+        vmin, vmax = float(np.min(vs)), float(np.max(vs))
+        span = vmax - vmin
+        if not np.isfinite(span) or span <= 0:
+            return vmin - 1, vmax + 1
+        pad = span * pad_frac
+        return vmin - pad, vmax + pad
+
+    ax.set_xlim(*_pad(x_time))
+    ax.set_ylim(*_pad(y_psnr))
+    ax.set_zlim(*_pad(z_ssim))
+
+    # Projections onto planes for readability
+    xz_yfloor = ax.get_ylim()[0]
+    yz_xfloor = ax.get_xlim()[0]
+    xy_zfloor = ax.get_zlim()[0]
+
+    for x, y, z, c in zip(x_time, y_psnr, z_ssim, color_list):
+        # Lines to planes
+        ax.plot([x, x], [y, y], [xy_zfloor, z], linestyle='--', color=c, alpha=0.25, linewidth=0.8)
+        ax.plot([x, x], [xz_yfloor, y], [z, z], linestyle='--', color=c, alpha=0.15, linewidth=0.8)
+        ax.plot([yz_xfloor, x], [y, y], [z, z], linestyle='--', color=c, alpha=0.15, linewidth=0.8)
+
+    # Shadow points on XY plane
+    ax.scatter(x_time, y_psnr, [xy_zfloor]*len(x_time),
+               s=np.maximum(20, sizes*0.35), c=color_list, alpha=0.2, edgecolors='none')
+
+    # Annotate each point with algorithm name
+    for a, x, y, z in zip(algorithms, x_time, y_psnr, z_ssim):
+        ax.text(x, y, z, a, fontsize=8, ha='center', va='bottom', zorder=5, path_effects=None)
+
+    # Legends
+    # Color legend (algorithms)
+    color_handles = [Patch(facecolor=colors[a], edgecolor='k', label=a) for a in algorithms]
+
+    # Size legend (memory)
+    # pick representative memory values
+    reps = []
+    if m_max > 0:
+        positive = mem_arr[mem_arr > 0]
+        if positive.size:
+            reps = np.unique(np.round(np.quantile(positive, [0.25, 0.5, 0.75]), 3)).tolist()
+    if not reps:
+        reps = [max(0.1, m_min), max(0.5, (m_min + m_max)/2), max(1.0, m_max)]
+
+    size_handles = []
+    for r in reps:
+        ms = size_min + (size_max - size_min) * ((r - m_min) / den)
+        ms = max(10, ms)
+        size_handles.append(Line2D([0], [0], marker='o', color='w', label=f'{r:.3f} MB',
+                                   markerfacecolor='#777777', markersize=np.sqrt(ms), alpha=0.7, markeredgecolor='k'))
+
+    legend1 = ax.legend(handles=color_handles, title='Algorithm', loc='upper left', bbox_to_anchor=(1.02, 1.0))
+    legend2 = ax.legend(handles=size_handles, title='Memory (mean, MB)', loc='upper left', bbox_to_anchor=(1.02, 0.55))
+    ax.add_artist(legend1)
+
+    plt.show()
+
+    # Optional: save figure
+    if save and results_dir is not None:
+        try:
+            out_fig = Path(results_dir) / 'speed_quality_tradeoff_3d.png'
+            fig.savefig(out_fig, dpi=150, bbox_inches='tight')
+        except Exception:
+            pass
