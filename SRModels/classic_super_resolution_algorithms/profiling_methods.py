@@ -245,6 +245,91 @@ def compute_summary_stats(values):
         'var': float(np.var(values, ddof=1)) if len(values) > 1 else 0.0,
         'count': int(len(values))
     }
+    
+def build_metrics_summary(
+    time_stats,
+    memory_stats,
+    psnr_stats,
+    ssim_stats,
+    mae_stats,
+    rmse_stats,
+    gradient_mse_stats,
+    epi_stats,
+    hf_energy_ratio_stats,
+    kl_luma_stats,
+    kl_color_stats,
+):
+    """
+    Build aggregated per-algorithm summary metrics from provided stats dictionaries.
+    Returns a dict keyed by algorithm with mean/max/var and other derived fields.
+    This function is pure (does not mutate globals).
+    """
+    
+    # Compute time/memory jitter & variance from collected stats
+    tj, tv, mv = {}, {}, {}
+    for alg in time_stats.keys():
+        t_arr = time_stats.get(alg, [])
+        if len(t_arr) > 1 and np.mean(t_arr) > 0:
+            tj[alg] = float(np.std(t_arr, ddof=1) / np.mean(t_arr))
+            tv[alg] = float(np.var(t_arr, ddof=1))
+        else:
+            tj[alg] = np.nan
+            tv[alg] = np.nan
+
+        m_arr = memory_stats.get(alg, [])
+        if len(m_arr) > 1:
+            mv[alg] = float(np.var(m_arr, ddof=1))
+        else:
+            mv[alg] = np.nan
+
+    # Confidence intervals for PSNR/SSIM
+    psnr_ci = {alg: bootstrap_ci(vals) for alg, vals in psnr_stats.items()}
+    ssim_ci = {alg: bootstrap_ci(vals) for alg, vals in ssim_stats.items()}
+
+    # Aggregate statistics per algorithm
+    summary = {}
+    for alg in time_stats.keys():
+        time_stats_alg = compute_summary_stats(time_stats.get(alg, []))
+        mem_stats_alg = compute_summary_stats(memory_stats.get(alg, []))
+        psnr_stats_alg = compute_summary_stats(psnr_stats.get(alg, []))
+        ssim_stats_alg = compute_summary_stats(ssim_stats.get(alg, []))
+        mae_stats_alg = compute_summary_stats(mae_stats.get(alg, []))
+        rmse_stats_alg = compute_summary_stats(rmse_stats.get(alg, []))
+        grad_stats_alg = compute_summary_stats(gradient_mse_stats.get(alg, []))
+        epi_stats_alg = compute_summary_stats(epi_stats.get(alg, []))
+        hf_stats_alg = compute_summary_stats(hf_energy_ratio_stats.get(alg, []))
+        kl_luma_stats_alg = compute_summary_stats(kl_luma_stats.get(alg, []))
+        kl_color_stats_alg = compute_summary_stats(kl_color_stats.get(alg, []))
+
+        summary[alg] = {
+            'psnr_mean': psnr_stats_alg['mean'],
+            'psnr_var': psnr_stats_alg['var'],
+            'psnr_max': psnr_stats_alg['max'],
+            'psnr_ci_low': psnr_ci[alg][0],
+            'psnr_ci_high': psnr_ci[alg][1],
+            'ssim_mean': ssim_stats_alg['mean'],
+            'ssim_var': ssim_stats_alg['var'],
+            'ssim_max': ssim_stats_alg['max'],
+            'ssim_ci_low': ssim_ci[alg][0],
+            'ssim_ci_high': ssim_ci[alg][1],
+            'time_mean': time_stats_alg['mean'],
+            'time_max': time_stats_alg['max'],
+            'time_jitter': tj[alg],
+            'time_var': tv[alg],
+            'memory_mean': mem_stats_alg['mean'],
+            'memory_max': mem_stats_alg['max'],
+            'memory_var': mv[alg],
+            'mae_mean': mae_stats_alg['mean'],
+            'mae_max': mae_stats_alg['max'],
+            'rmse_mean': rmse_stats_alg['mean'],
+            'rmse_max': rmse_stats_alg['max'],
+            'grad_mse_mean': grad_stats_alg['mean'],
+            'epi_mean': epi_stats_alg['mean'],
+            'hf_ratio_mean': hf_stats_alg['mean'],
+            'kl_luma_mean': kl_luma_stats_alg['mean'],
+            'kl_color_mean': kl_color_stats_alg['mean'],
+        }
+    return summary
 
 def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
     """Rank algorithms based on multiple metrics with normalization.
