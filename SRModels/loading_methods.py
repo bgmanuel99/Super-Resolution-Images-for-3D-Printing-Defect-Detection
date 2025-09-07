@@ -1,5 +1,6 @@
 import os
 import cv2
+import pickle
 import numpy as np
 
 def add_padding(image, patch_size, stride):
@@ -37,13 +38,13 @@ def get_all_image_paths(root):
     return sorted(image_paths)
 
 def load_dataset_as_patches(
-        hr_root,
-        lr_root,
-        mode='srcnn',
-        patch_size=33,
-        stride=14,
-        scale_factor=2,
-        upsample_interp=cv2.INTER_CUBIC):
+    hr_root,
+    lr_root,
+    mode='srcnn',
+    patch_size=33,
+    stride=14,
+    scale_factor=2,
+    interpolation_map_path=None):
     """
     Dataset loader producing aligned LR/HR patch pairs.
 
@@ -67,8 +68,8 @@ def load_dataset_as_patches(
         Stride for sliding window over LR (and HR in SRCNN).
     scale_factor : int
         Scaling factor (only used in scale mode).
-    upsample_interp :
-        OpenCV interpolation flag (SRCNN mode).
+    interpolation_map_path : str
+        Path to interpolation map (SRCNN mode).
 
     Returns
     -------
@@ -95,16 +96,21 @@ def load_dataset_as_patches(
         raise ValueError("scale_factor must be positive int.")
 
     X, Y = [], []
-    
+
     hr_paths = get_all_image_paths(hr_root)
     lr_paths = get_all_image_paths(lr_root)
-    
+
     if not hr_paths or not lr_paths:
         raise ValueError("No images found in provided directories.")
 
     hr_dict = {os.path.basename(p): p for p in hr_paths}
     lr_dict = {os.path.basename(p): p for p in lr_paths}
     common_filenames = sorted(set(hr_dict) & set(lr_dict))
+
+    if mode == 'srcnn' and interpolation_map_path is not None:
+        interpolation_map = None
+        with open(interpolation_map_path, 'rb') as f:
+            interpolation_map = pickle.load(f)
 
     for fname in common_filenames:
         hr_img = cv2.imread(hr_dict[fname], cv2.IMREAD_COLOR)
@@ -124,53 +130,56 @@ def load_dataset_as_patches(
         lr_h, lr_w, _ = lr_img.shape
 
         if mode == 'srcnn':
+            interp_method = cv2.INTER_CUBIC
+            if interpolation_map is not None:
+                interp_method = interpolation_map.get(fname, cv2.INTER_CUBIC)
             lr_up = cv2.resize(
-                lr_img, (hr_w, hr_h), interpolation=upsample_interp
+                lr_img, (hr_w, hr_h), interpolation=interp_method
             )
-            
+
             # Add padding to ensure full coverage
             hr_proc = add_padding(hr_img, patch_size, stride)
             lr_proc = add_padding(lr_up, patch_size, stride)
-            
+
             for i in range(0, hr_h - patch_size + 1, stride):
                 for j in range(0, hr_w - patch_size + 1, stride):
                     hr_patch = hr_proc[i:i+patch_size, j:j+patch_size, :]
                     lr_patch = lr_proc[i:i+patch_size, j:j+patch_size, :]
-                    
+
                     X.append(lr_patch)
                     Y.append(hr_patch)
         else: # mode == 'scale'
             patch_size_hr = patch_size * scale_factor
-            
+
             # Add padding to ensure full coverage
             hr_proc = add_padding(hr_img, patch_size_hr, stride)
             lr_proc = add_padding(lr_img, patch_size, stride)
-            
+
             for i in range(0, lr_h - patch_size + 1, stride):
                 for j in range(0, lr_w - patch_size + 1, stride):
                     # Extract LR patch
                     lr_patch = lr_proc[i:i+patch_size, j:j+patch_size]
-                    
+
                     # Extract corresponding HR patch
                     hr_i = i * scale_factor
                     hr_j = j * scale_factor
-                    
+
                     if ((hr_i + patch_size_hr <= hr_h)
                         and (hr_j + patch_size_hr <= hr_w)):
                         hr_patch = hr_proc[
                             hr_i:hr_i + patch_size_hr,
                             hr_j:hr_j + patch_size_hr,
                         ]
-                        
+
                         if (lr_patch.shape[:2] == (patch_size, patch_size)
-                            and hr_patch.shape[:2] 
+                            and hr_patch.shape[:2]
                                 == (patch_size_hr, patch_size_hr)):
                             X.append(lr_patch)
                             Y.append(hr_patch)
-    
+
     X_arr = np.array(X)
     Y_arr = np.array(Y)
-    
+
     if mode == 'srcnn':
         return X_arr, Y_arr, hr_h, hr_w
     return X_arr, Y_arr
