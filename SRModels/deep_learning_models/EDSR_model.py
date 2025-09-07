@@ -1,9 +1,8 @@
 import os
 import sys
 import math
-import datetime
+import time
 
-import cv2
 import numpy as np
 import tensorflow as tf
 from keras.optimizers import Adam
@@ -409,8 +408,37 @@ class EDSR:
         lr_patches, positions = extract_patches_from_image(lr_img_padded, patch_size_lr, stride)
         print(f"Total patches: {len(lr_patches)}")
 
-        # --- Predict HR patches in batch ---
+        # --- Predict HR patches in batch (measure time and GPU memory around predict) ---
+        def _read_gpu_info(device="GPU:0"):
+            try:
+                return tf.config.experimental.get_memory_info(device)
+            except Exception:
+                return None
+
+        gpu_begin = _read_gpu_info()
+        t0 = time.perf_counter()
+
         hr_patches = self.model.predict(lr_patches, batch_size=16, verbose=0)
+
+        elapsed = time.perf_counter() - t0
+        gpu_end = _read_gpu_info()
+
+        def _mb(x):
+            return None if x is None else float(x) / (1024.0 * 1024.0)
+
+        cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
+        cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
+
+        if cur_begin is not None and cur_end is not None:
+            mean_current_bytes = (cur_begin + cur_end) / 2.0
+            gpu_mean_current_mb = _mb(mean_current_bytes)
+        else:
+            gpu_mean_current_mb = _mb(cur_end) if cur_end is not None else None
+
+        inference_metrics = {
+            "time_sec": float(elapsed),
+            "gpu_mean_current_mb": gpu_mean_current_mb,
+        }
 
         # --- Reconstruct HR image and crop ---
         sr_img = reconstruct_from_patches(
@@ -422,7 +450,7 @@ class EDSR:
             scale=self.scale_factor,
         )
 
-        return sr_img
+        return sr_img, inference_metrics
 
     def save(self, directory, timestamp):
         """Save the trained model with a timestamp in the specified directory."""
