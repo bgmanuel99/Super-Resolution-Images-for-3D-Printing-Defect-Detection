@@ -326,89 +326,109 @@ class EDSR:
         return results
     
     def super_resolve_image(self, lr_img_path, patch_size_lr=48, stride=24):
-        """
-        Super-resolves a single LR image from a file path using patch-wise prediction and reconstructs the HR image.
-        
-        Args:
-            lr_img_path (str): Path to the input LR image.
-            patch_size_lr (int): Size of LR patches.
-            stride (int): Stride for patch extraction.
-        
-        Returns:
-            np.ndarray: Super-resolved HR image, float32 in [0, 1].
-        """
-        
+        """Patch-based SR similar in flow to SRCNN: add padding, extract LR patches, 
+        batch-predict HR patches, reconstruct with overlap averaging, 
+        and crop to original HR size. No interpolation is used."""
+
         if not self.trained:
             raise RuntimeError("Model has not been trained.")
 
-        # --- Read and preprocess the LR image ---
+        if self.scale_factor is None:
+            raise ValueError("scale_factor is not set. Call setup_model first.")
+
+        # --- Helpers to mirror SRCNN's structure (adapted for EDSR scaling) ---
+        def add_padding(image, patch_size, stride):
+            """Reflect-pad LR image to ensure full coverage by sliding window."""
+            h, w, c = image.shape
+
+            pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
+            pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
+
+            pad_h = max(pad_h, patch_size - stride)
+            pad_w = max(pad_w, patch_size - stride)
+
+            padded_img = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
+            return padded_img, (h, w)
+
+        def extract_patches_from_image(image, patch_size=48, stride=24):
+            """Extract LR patches and their top-left positions."""
+            h, w, _ = image.shape
+            patches = []
+            positions = []
+            for i in range(0, h - patch_size + 1, stride):
+                for j in range(0, w - patch_size + 1, stride):
+                    patches.append(image[i:i+patch_size, j:j+patch_size, :])
+                    positions.append((i, j))
+            return np.asarray(patches, dtype=np.float32), positions
+
+        def reconstruct_from_patches(hr_patches, positions, padded_lr_shape, original_lr_shape, patch_size_lr=48, scale=2):
+            """Reconstruct HR image from predicted HR patches and crop to original upscale size."""
+            h_lr_pad, w_lr_pad = padded_lr_shape[:2]
+            h_lr_orig, w_lr_orig = original_lr_shape
+
+            c = 3
+            patch_size_hr = patch_size_lr * scale
+
+            hr_h_pad = h_lr_pad * scale
+            hr_w_pad = w_lr_pad * scale
+
+            reconstructed = np.zeros((hr_h_pad, hr_w_pad, c), dtype=np.float32)
+            weight = np.zeros_like(reconstructed, dtype=np.float32)
+
+            for patch, (i, j) in zip(hr_patches, positions):
+                hi = i * scale
+                hj = j * scale
+                reconstructed[hi:hi+patch_size_hr, hj:hj+patch_size_hr, :] += patch
+                weight[hi:hi+patch_size_hr, hj:hj+patch_size_hr, :] += 1.0
+
+            reconstructed = np.divide(
+                reconstructed,
+                weight,
+                out=np.zeros_like(reconstructed),
+                where=weight != 0
+            )
+
+            out_h = h_lr_orig * scale
+            out_w = w_lr_orig * scale
+            reconstructed = reconstructed[:out_h, :out_w, :]
+            
+            return np.clip(reconstructed, 0.0, 1.0)
+
+        # --- Read and preprocess LR image ---
         lr_img = cv2.imread(lr_img_path, cv2.IMREAD_COLOR)
-        
         if lr_img is None:
-            raise ValueError(f"Could not read image at {lr_img_path}")
-        
-        # Convert BGR (OpenCV default) to RGB and normalize to [0, 1]
+            raise FileNotFoundError(f"Could not read image at {lr_img_path}")
         lr_img = cv2.cvtColor(lr_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
 
-        # --- Calculate HR patch size based on scale factor ---
-        patch_size_hr = patch_size_lr * self.scale_factor
+        # --- Pad LR image ---
+        lr_img_padded, original_lr_shape = add_padding(lr_img, patch_size_lr, stride)
 
-        # --- Padding to ensure full coverage when extracting patches ---
-        h, w, c = lr_img.shape
-        
-        pad_h = (patch_size_lr - (h % stride)) % stride if h % stride != 0 else 0
-        pad_w = (patch_size_lr - (w % stride)) % stride if w % stride != 0 else 0
-        
-        pad_h = max(pad_h, patch_size_lr - stride)
-        pad_w = max(pad_w, patch_size_lr - stride)
-        
-        lr_img_padded = np.pad(
-            lr_img,
-            ((0, pad_h), (0, pad_w), (0, 0)),
-            mode='reflect'
+        print(f"Original LR shape: {lr_img.shape}")
+        print(f"Padded LR shape:   {lr_img_padded.shape}")
+
+        # --- Extract LR patches ---
+        lr_patches, positions = extract_patches_from_image(lr_img_padded, patch_size_lr, stride)
+        print(f"Total patches: {len(lr_patches)}")
+
+        if len(lr_patches) == 0:
+            # Edge case: very small images; fallback to single forward pass
+            sr_img = self.model.predict(np.expand_dims(lr_img, axis=0), verbose=0)[0]
+            h, w = original_lr_shape
+            return np.clip(sr_img[:h*self.scale_factor, :w*self.scale_factor, :], 0.0, 1.0)
+
+        # --- Predict HR patches in batch ---
+        hr_patches = self.model.predict(lr_patches, batch_size=16, verbose=0)
+
+        # --- Reconstruct HR image and crop ---
+        sr_img = reconstruct_from_patches(
+            hr_patches,
+            positions,
+            lr_img_padded.shape,
+            original_lr_shape,
+            patch_size_lr=patch_size_lr,
+            scale=self.scale_factor,
         )
-        
-        padded_h, padded_w, _ = lr_img_padded.shape
 
-        # --- Prepare output HR image and weight map for overlap-averaging ---
-        hr_img_shape = (padded_h * self.scale_factor, padded_w * self.scale_factor, c)
-        hr_img = np.zeros(hr_img_shape, dtype=np.float32)
-        weight_map = np.zeros(hr_img_shape, dtype=np.float32)
-
-        # --- Extract LR patches, predict HR patches, and reconstruct HR image ---
-        for i in range(0, padded_h - patch_size_lr + 1, stride):
-            for j in range(0, padded_w - patch_size_lr + 1, stride):
-                # Extract LR patch
-                lr_patch = lr_img_padded[i:i+patch_size_lr, j:j+patch_size_lr]
-                
-                # Add batch dimension for model prediction
-                lr_patch_batch = np.expand_dims(lr_patch, axis=0)
-                
-                # Predict HR patch using the model
-                sr_patch = self.model.predict(lr_patch_batch, verbose=0)[0]
-                
-                # Calculate the position in the HR image
-                hr_i = i * self.scale_factor
-                hr_j = j * self.scale_factor
-                
-                # Add predicted patch to the HR image
-                hr_img[hr_i:hr_i+patch_size_hr, hr_j:hr_j+patch_size_hr] += sr_patch
-                
-                # Update weight map for overlap-averaging
-                weight_map[hr_i:hr_i+patch_size_hr, hr_j:hr_j+patch_size_hr] += 1.0
-
-        # --- Normalize by the weight map to average overlapping regions ---
-        weight_map[weight_map == 0] = 1.0
-        hr_img /= weight_map
-
-        # --- Remove padding to return image with original upscaled size ---
-        out_h = h * self.scale_factor
-        out_w = w * self.scale_factor
-        hr_img = hr_img[:out_h, :out_w]
-
-        # --- Clip values to [0, 1] and return ---
-        sr_img = np.clip(hr_img, 0.0, 1.0)
-        
         return sr_img
 
     def save(self, directory="models/EDSR"):
