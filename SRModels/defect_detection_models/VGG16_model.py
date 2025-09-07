@@ -156,6 +156,7 @@ class FineTunedVGG16:
     def save(self, directory="models/VGG16"):
         if not self.trained:
             raise RuntimeError("Cannot save an untrained model.")
+        
         os.makedirs(directory, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(directory, f"VGG16_{timestamp}.h5")

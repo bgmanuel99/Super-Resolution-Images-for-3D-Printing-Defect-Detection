@@ -1,6 +1,5 @@
 import os
 import sys
-import datetime
 
 import cv2
 import numpy as np
@@ -228,14 +227,15 @@ class SRCNNModel:
 
         return sr_img
 
-    def save(self, directory="models/SRCNN"):
+    def save(self, directory, timestamp):
         """Saves the model to a .h5 file with a timestamp."""
         
         if not self._trained:
             raise RuntimeError("Cannot save an untrained model.")
+        if not directory:
+            raise ValueError("Directory path must be provided.")
         
         os.makedirs(directory, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = os.path.join(directory, f"SRCNN_{timestamp}.h5")
         self.model.save(filepath)
         print(f"Model saved to {filepath}")
