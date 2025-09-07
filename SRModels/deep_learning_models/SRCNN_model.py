@@ -247,9 +247,12 @@ class SRCNNModel:
         def _mb(x):
             return None if x is None else float(x) / (1024.0 * 1024.0)
 
+
         cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
         cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
-        
+        peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
+        peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
+
         # Approximate mean GPU memory usage as the average of begin and end 'current' values
         if cur_begin is not None and cur_end is not None:
             mean_current_bytes = (cur_begin + cur_end) / 2.0
@@ -257,9 +260,17 @@ class SRCNNModel:
         else:
             gpu_mean_current_mb = _mb(cur_end) if cur_end is not None else None
 
+        # Get peak GPU memory usage during inference
+        gpu_peak_mb = None
+        if peak_begin is not None and peak_end is not None:
+            gpu_peak_mb = _mb(max(peak_begin, peak_end))
+        elif peak_end is not None:
+            gpu_peak_mb = _mb(peak_end)
+
         inference_metrics = {
             "time_sec": float(elapsed),
             "gpu_mean_current_mb": gpu_mean_current_mb,
+            "gpu_peak_mb": gpu_peak_mb,
         }
 
         # Reconstruct

@@ -1,9 +1,8 @@
 import os
 import sys
-import datetime
+import time
 
 import numpy as np
-import cv2
 import tensorflow as tf
 from keras import Model
 from keras.optimizers import Adam
@@ -872,16 +871,55 @@ class ESRGAN:
 
         lr_patches_norm = (lr_patches * 2.0) - 1.0
 
-        # Predict HR patches; outputs are in [-1,1] due to tanh
+        # --- Predict HR patches in batch (measure time and GPU memory around predict) ---
+        def _read_gpu_info(device="GPU:0"):
+            try:
+                return tf.config.experimental.get_memory_info(device)
+            except Exception:
+                return None
+
+        gpu_begin = _read_gpu_info()
+        t0 = time.perf_counter()
+
         hr_patches = self.generator.predict(lr_patches_norm, batch_size=batch_size, verbose=0)
+
+        elapsed = time.perf_counter() - t0
+        gpu_end = _read_gpu_info()
+
         hr_patches = (hr_patches + 1.0) / 2.0  # to [0,1]
+
+        def _mb(x):
+            return None if x is None else float(x) / (1024.0 * 1024.0)
+
+        cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
+        cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
+        peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
+        peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
+
+        if cur_begin is not None and cur_end is not None:
+            mean_current_bytes = (cur_begin + cur_end) / 2.0
+            gpu_mean_current_mb = _mb(mean_current_bytes)
+        else:
+            gpu_mean_current_mb = _mb(cur_end) if cur_end is not None else None
+
+        gpu_peak_mb = None
+        if peak_begin is not None and peak_end is not None:
+            gpu_peak_mb = _mb(max(peak_begin, peak_end))
+        elif peak_end is not None:
+            gpu_peak_mb = _mb(peak_end)
+
+        inference_metrics = {
+            "time_sec": float(elapsed),
+            "gpu_mean_current_mb": gpu_mean_current_mb,
+            "gpu_peak_mb": gpu_peak_mb,
+        }
 
         # Reconstruct HR image and crop to target size
         sr_img = reconstruct_from_hr_patches(
             hr_patches, positions, lr_padded.shape, lr_orig_shape, patch_size_lr, scale
         )
 
-        return sr_img
+        return sr_img, inference_metrics
     
     def save(self, directory, timestamp):
         """Save the trained model with a timestamp in the specified directory."""
