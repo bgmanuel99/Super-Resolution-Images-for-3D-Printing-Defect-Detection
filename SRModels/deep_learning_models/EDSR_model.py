@@ -325,10 +325,10 @@ class EDSR:
         
         return results
     
-    def super_resolve_image(self, lr_img_path, patch_size_lr=48, stride=24):
-        """Patch-based SR similar in flow to SRCNN: add padding, extract LR patches, 
-        batch-predict HR patches, reconstruct with overlap averaging, 
-        and crop to original HR size. No interpolation is used."""
+    def super_resolve_image(self, lr_img, patch_size_lr=48, stride=24):
+        """Patch-based SR similar in flow to SRCNN, but accepts an in-memory LR numpy array.
+        Steps: add padding, extract LR patches, batch-predict HR patches, reconstruct with
+        overlap averaging, and crop to original HR size. No interpolation is used."""
 
         if not self.trained:
             raise RuntimeError("Model has not been trained.")
@@ -394,12 +394,6 @@ class EDSR:
             
             return np.clip(reconstructed, 0.0, 1.0)
 
-        # --- Read and preprocess LR image ---
-        lr_img = cv2.imread(lr_img_path, cv2.IMREAD_COLOR)
-        if lr_img is None:
-            raise FileNotFoundError(f"Could not read image at {lr_img_path}")
-        lr_img = cv2.cvtColor(lr_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-
         # --- Pad LR image ---
         lr_img_padded, original_lr_shape = add_padding(lr_img, patch_size_lr, stride)
 
@@ -409,12 +403,6 @@ class EDSR:
         # --- Extract LR patches ---
         lr_patches, positions = extract_patches_from_image(lr_img_padded, patch_size_lr, stride)
         print(f"Total patches: {len(lr_patches)}")
-
-        if len(lr_patches) == 0:
-            # Edge case: very small images; fallback to single forward pass
-            sr_img = self.model.predict(np.expand_dims(lr_img, axis=0), verbose=0)[0]
-            h, w = original_lr_shape
-            return np.clip(sr_img[:h*self.scale_factor, :w*self.scale_factor, :], 0.0, 1.0)
 
         # --- Predict HR patches in batch ---
         hr_patches = self.model.predict(lr_patches, batch_size=16, verbose=0)

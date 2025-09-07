@@ -129,13 +129,21 @@ class SRCNNModel:
         
         return results
     
-    def super_resolve_image(self, image_path, hr_h, hr_w, patch_size=33, stride=14, interpolation=cv2.INTER_CUBIC):
-        """Performs super-resolution using padding to avoid border issues."""
+    def super_resolve_image(self, lr_img, hr_h, hr_w, patch_size=33, stride=14, interpolation=cv2.INTER_CUBIC):
+        """Super-resolve an in-memory LR RGB image array using padding and patch-wise inference.
+        Args:
+            lr_img: np.ndarray RGB image; dtype uint8 [0,255] or float32 [0,1] or [0,255].
+            hr_h, hr_w: Target HR dimensions to which LR is first upscaled before SRCNN.
+            patch_size, stride: Patch extraction parameters.
+            interpolation: OpenCV interpolation used to upscale LR to (hr_w, hr_h).
+        Returns:
+            np.ndarray float32 RGB in [0,1] of shape (hr_h, hr_w, 3).
+        """
         
         if not self._trained:
             raise RuntimeError("Model has not been trained.")
-        if not os.path.isfile(image_path):
-            raise FileNotFoundError(f"Image file not found at {image_path}")
+        if lr_img is None or not isinstance(lr_img, np.ndarray):
+            raise ValueError("lr_img must be a numpy array (RGB).")
         
         def add_padding(image, patch_size, stride):
             """Add padding to ensure full coverage."""
@@ -200,13 +208,9 @@ class SRCNNModel:
             
             return np.clip(reconstructed, 0, 1)
 
-        # Load and normalize original image
-        img = cv2.imread(image_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = img.astype(np.float32) / 255.0
-        
-        img_lr_up = cv2.resize(img, (hr_w, hr_h), interpolation=interpolation)
-        
+        # Upscale LR to expected HR size
+        img_lr_up = cv2.resize(lr_img, (hr_w, hr_h), interpolation=interpolation)
+
         # Agregar padding
         padded_img, original_shape = add_padding(img_lr_up, patch_size, stride)
         

@@ -778,7 +778,7 @@ class ESRGAN:
         
         return metrics
     
-    def super_resolve_image(self, lr_img_path, patch_size_lr=48, stride=24, batch_size=16):
+    def super_resolve_image(self, lr_img, patch_size_lr=48, stride=24, batch_size=16):
         """Patch-wise super-resolution using the ESRGAN generator.
         Follows SRCNN/EDSR flow: reflect padding, patch extraction, batch predict, overlap-averaged reconstruction.
         Accounts for ESRGAN's [-1,1] tanh output by normalizing inputs to [-1,1] and denormalizing outputs to [0,1].
@@ -843,28 +843,14 @@ class ESRGAN:
             out_h, out_w = h_lr_orig * scale, w_lr_orig * scale
             return np.clip(recon[:out_h, :out_w, :], 0.0, 1.0)
 
-        # --- Load and preprocess LR ---
-        lr_bgr = cv2.imread(lr_img_path, cv2.IMREAD_COLOR)
-        if lr_bgr is None:
-            raise FileNotFoundError(f"Could not read image at {lr_img_path}")
-        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-
         # Pad LR image
-        lr_padded, lr_orig_shape = add_padding(lr_rgb, patch_size_lr, stride)
-        print(f"Original LR shape: {lr_rgb.shape}")
+        lr_padded, lr_orig_shape = add_padding(lr_img, patch_size_lr, stride)
+        print(f"Original LR shape: {lr_img.shape}")
         print(f"Padded LR shape:   {lr_padded.shape}")
 
         # Extract LR patches and normalize to [-1,1]
         lr_patches, positions = extract_lr_patches(lr_padded, patch_size_lr, stride)
         print(f"Total patches: {len(lr_patches)}")
-
-        if lr_patches.shape[0] == 0:
-            # Very small image fallback: run once on full image
-            inp = (np.expand_dims(lr_rgb, 0) * 2.0) - 1.0
-            hr_pred = self.generator.predict(inp, verbose=0)[0]
-            hr_pred = (hr_pred + 1.0) / 2.0
-            h, w = lr_orig_shape
-            return np.clip(hr_pred[:h*scale, :w*scale, :], 0.0, 1.0)
 
         lr_patches_norm = (lr_patches * 2.0) - 1.0
 
