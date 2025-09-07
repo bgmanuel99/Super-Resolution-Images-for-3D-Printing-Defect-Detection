@@ -84,7 +84,7 @@ class SRCNNModel:
             EarlyStopping(monitor="loss", patience=3, restore_best_weights=True),
             ReduceLROnPlateau(monitor="loss", factor=0.5, patience=2, min_lr=1e-6, verbose=1), 
             EpochTimeCallback(), 
-            EpochMemoryCallback(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
+            EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0")
         ]
         
         if use_augmentation:

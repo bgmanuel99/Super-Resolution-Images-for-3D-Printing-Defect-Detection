@@ -279,7 +279,7 @@ class EDSR:
             CosineAnnealingWithRestarts(T_max=10, eta_max=1e-3, eta_min=1e-5, T_mult=2), 
             CyclicLR(base_lr=1e-5, max_lr=1e-3, step_size=2000, mode='triangular'), 
             EpochTimeCallback(), 
-            EpochMemoryCallback(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
+            EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0")
         ]
 
         if use_augmentation:

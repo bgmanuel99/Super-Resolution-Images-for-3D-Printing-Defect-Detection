@@ -44,17 +44,12 @@ class EpochTimeCallback(Callback):
 class EpochMemoryCallback(Callback):
 	"""Keras Callback: records GPU memory per epoch"""
 
-	def __init__(self, track_cpu=True, track_gpu=True, gpu_device="GPU:0"):
+	def __init__(self, track_gpu=True, gpu_device="GPU:0"):
 		super().__init__()
-		self.track_cpu = track_cpu
 		self.track_gpu = track_gpu
 		self.gpu_device = gpu_device
-
-		# Per-epoch recorded metrics (only mean current and peak GPU memory)
 		self.gpu_mean_current_mb = []
 		self.gpu_peak_mb = []
-  
-		# Internals for epoch-begin baselines
 		self._gpu_begin = None
 
 	def _read_gpu_info(self):
@@ -128,11 +123,9 @@ class EpochTimeTracker:
 class EpochMemoryTracker:
 	"""Manual epoch memory tracker for custom loops (e.g., ESRGAN)"""
 
-	def __init__(self, track_cpu=True, track_gpu=True, gpu_device="GPU:0"):
-		self.track_cpu = track_cpu
+	def __init__(self, track_gpu=True, gpu_device="GPU:0"):
 		self.track_gpu = track_gpu
 		self.gpu_device = gpu_device
-
 		self.gpu_mean_current_mb = []
 		self.gpu_peak_mb = []
 		self._gpu_begin = None

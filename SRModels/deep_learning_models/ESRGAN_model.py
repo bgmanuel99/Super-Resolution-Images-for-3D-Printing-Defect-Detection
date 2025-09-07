@@ -649,7 +649,7 @@ class ESRGAN:
 
         # Trackers
         time_tracker = EpochTimeTracker()
-        memory_tracker = EpochMemoryTracker(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
+        memory_tracker = EpochMemoryTracker(track_gpu=True, gpu_device="GPU:0")
 
         # Bucle de entrenamiento
         for epoch in range(epochs):
