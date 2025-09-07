@@ -1,0 +1,241 @@
+import os
+import sys
+import datetime
+
+import cv2
+import numpy as np
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from keras.optimizers import Adam
+from keras.layers import Conv2D, InputLayer
+from keras.models import Sequential, load_model
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
+from SRModels.metrics import psnr, ssim
+from SRModels.data_augmentation import AdvancedAugmentGenerator
+
+class SRCNNModel:
+    def __init__(self):
+        self.model = None
+        self._trained = False
+
+    def setup_model(
+            self, 
+            input_shape=(33, 33, 3), 
+            learning_rate=1e-4, 
+            loss="mean_squared_error", 
+            from_pretrained=False, 
+            pretrained_path=None):
+        """Sets up the model: either loads pretrained or builds + compiles a new model."""
+        
+        if from_pretrained:
+            if pretrained_path is None or not os.path.isfile(pretrained_path):
+                raise FileNotFoundError(f"Pretrained model file not found at {pretrained_path}")
+            
+            self.model = load_model(pretrained_path, custom_objects={"psnr": psnr, "ssim": ssim})
+            print(f"Loaded pretrained model from {pretrained_path}")
+            self._trained = True
+        else:
+            self._build_model(input_shape)
+            self._compile_model(learning_rate, loss)
+
+    def _build_model(self, input_shape):
+        """Builds the SRCNN model using Sequential API."""
+        
+        self.model = Sequential([
+            InputLayer(input_shape=input_shape), 
+            Conv2D(64, (9, 9), activation="relu", padding="same"),
+            Conv2D(32, (1, 1), activation="relu", padding="same"),
+            Conv2D(3, (5, 5), activation="linear", padding="same")
+        ])
+
+    def _compile_model(self, learning_rate, loss):
+        """Compiles the model."""
+        
+        optimizer = Adam(learning_rate=learning_rate)
+        self.model.compile(optimizer=optimizer, loss=loss, metrics=[psnr, ssim])
+        self.model.summary()
+
+    def fit(
+            self, 
+            X_train, 
+            Y_train, 
+            X_val, 
+            Y_val, 
+            batch_size=16, 
+            epochs=50, 
+            use_augmentation=True, 
+            use_mix=True, 
+            augment_validation=False):
+        """Trains the model with optional data augmentation and callbacks."""
+        
+        if self.model is None:
+            raise ValueError("Model has not been set up.")
+        
+        devices = tf.config.list_physical_devices("GPU")
+        if devices:
+            print("Training on GPU:", devices[0].name)
+        else:
+            print("Training on CPU")
+
+        # Callbacks
+        callbacks = [
+            EarlyStopping(monitor="loss", patience=3, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="loss", factor=0.5, patience=2, min_lr=1e-6, verbose=1)
+        ]
+        
+        if use_augmentation:
+            train_gen = AdvancedAugmentGenerator(X_train, Y_train, batch_size=batch_size, shuffle=True, use_mix=use_mix)
+            
+            if augment_validation:
+                # (Not recommended by default)
+                val_gen = AdvancedAugmentGenerator(X_val, Y_val, batch_size=batch_size, shuffle=False, use_mix=use_mix)
+
+                self.model.fit(
+                    train_gen,
+                    steps_per_epoch=len(train_gen),
+                    epochs=epochs,
+                    validation_data=val_gen,
+                    validation_steps=len(val_gen),
+                    callbacks=callbacks
+                )
+            else:
+                self.model.fit(
+                    train_gen,
+                    steps_per_epoch=len(train_gen),
+                    epochs=epochs,
+                    validation_data=(X_val, Y_val),
+                    callbacks=callbacks
+                )
+        else:
+            self.model.fit(
+                X_train, Y_train,
+                batch_size=batch_size,
+                epochs=epochs,
+                validation_data=(X_val, Y_val),
+                callbacks=callbacks
+            )
+
+        self._trained = True
+
+    def evaluate(self, X_test, Y_test):
+        """Evaluates the model."""
+        
+        if not self._trained:
+            raise RuntimeError("Model has not been trained.")
+        
+        results = self.model.evaluate(X_test, Y_test)
+        print(f"Loss: {results[0]:.4f}, PSNR: {results[1]:.2f} dB, SSIM: {results[2]:.4f}")
+        
+        return results
+    
+    def super_resolve_image(self, image_path, hr_h, hr_w, patch_size=33, stride=14, interpolation=cv2.INTER_CUBIC):
+        """Performs super-resolution using padding to avoid border issues."""
+        
+        if not self._trained:
+            raise RuntimeError("Model has not been trained.")
+        if not os.path.isfile(image_path):
+            raise FileNotFoundError(f"Image file not found at {image_path}")
+        
+        def add_padding(image, patch_size, stride):
+            """Add padding to ensure full coverage."""
+            
+            h, w, c = image.shape
+            
+            # Calcular cuánto padding se necesita
+            pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
+            pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
+            
+            # Agregar padding extra para asegurar cobertura completa
+            pad_h = max(pad_h, patch_size - stride)
+            pad_w = max(pad_w, patch_size - stride)
+            
+            # Padding reflejado (mirror) para mantener continuidad
+            padded_img = np.pad(
+                image, 
+                ((0, pad_h), (0, pad_w), (0, 0)), 
+                mode='reflect'
+            )
+            
+            return padded_img, (h, w)
+        
+        def extract_patches_from_image(image, patch_size=33, stride=14):
+            """Extracts patches from an image."""
+            
+            h, w, _ = image.shape
+            patches = []
+            positions = []
+
+            for i in range(0, h - patch_size + 1, stride):
+                for j in range(0, w - patch_size + 1, stride):
+                    patch = image[i:i+patch_size, j:j+patch_size, :]
+                    patches.append(patch)
+                    positions.append((i, j))
+
+            return np.array(patches), positions
+
+        def reconstruct_from_patches(patches, positions, padded_shape, original_shape, patch_size=33):
+            """Reconstructs image and crops to original size."""
+            
+            h_pad, w_pad = padded_shape[:2]
+            h_orig, w_orig = original_shape
+            
+            reconstructed = np.zeros((h_pad, w_pad, 3), dtype=np.float32)
+            weight = np.zeros((h_pad, w_pad, 3), dtype=np.float32)
+
+            for patch, (i, j) in zip(patches, positions):
+                reconstructed[i:i+patch_size, j:j+patch_size, :] += patch
+                weight[i:i+patch_size, j:j+patch_size, :] += 1.0
+
+            # Evitar división por cero
+            reconstructed = np.divide(
+                reconstructed, 
+                weight, 
+                out=np.zeros_like(reconstructed), 
+                where=weight!=0
+            )
+            
+            # Recortar al tamaño original
+            reconstructed = reconstructed[:h_orig, :w_orig, :]
+            
+            return np.clip(reconstructed, 0, 1)
+
+        # Load and normalize original image
+        img = cv2.imread(image_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = img.astype(np.float32) / 255.0
+        
+        img_lr_up = cv2.resize(img, (hr_w, hr_h), interpolation=interpolation)
+        
+        # Agregar padding
+        padded_img, original_shape = add_padding(img_lr_up, patch_size, stride)
+        
+        print(f"Original shape: {img_lr_up.shape}")
+        print(f"Padded shape: {padded_img.shape}")
+
+        # Extraer patches
+        patches, positions = extract_patches_from_image(padded_img, patch_size, stride)
+        patches = np.array(patches)
+        
+        print(f"Total patches: {len(patches)}")
+
+        # Predict
+        preds = self.model.predict(patches, batch_size=16)
+
+        # Reconstruct
+        sr_img = reconstruct_from_patches(preds, positions, padded_img.shape, original_shape, patch_size)
+
+        return sr_img
+
+    def save(self, directory="models/SRCNN"):
+        """Saves the model to a .h5 file with a timestamp."""
+        
+        if not self._trained:
+            raise RuntimeError("Cannot save an untrained model.")
+        
+        os.makedirs(directory, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(directory, f"SRCNN_{timestamp}.h5")
+        self.model.save(filepath)
+        print(f"Model saved to {filepath}")
