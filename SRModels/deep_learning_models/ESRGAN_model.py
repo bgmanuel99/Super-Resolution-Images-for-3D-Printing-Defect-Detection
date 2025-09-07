@@ -725,9 +725,7 @@ class ESRGAN:
             if time_tracker is not None:
                 time_tracker.end_epoch()
 
-        # Expose trackers for later plotting
-        self._time_tracker = time_tracker
-        self._memory_tracker = memory_tracker
+        return time_tracker, memory_tracker
     
     def evaluate(self, test_dataset):
         """
@@ -885,7 +883,7 @@ class ESRGAN:
 
         return sr_img
     
-    def save(self, directory="models/ESRGAN", scale_factor=2):
+    def save(self, directory, timestamp):
         """Save the trained model with a timestamp in the specified directory."""
         
         if not self.trained:
@@ -893,9 +891,8 @@ class ESRGAN:
         
         os.makedirs(directory, exist_ok=True)
         
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        generator_path = os.path.join(directory, f"ESRGAN_generator_x{scale_factor}_{timestamp}.h5")
-        discriminator_path = os.path.join(directory, f"ESRGAN_discriminator_x{scale_factor}_{timestamp}.h5")
+        generator_path = os.path.join(directory, f"ESRGAN_generator_x{self.scale_factor}_{timestamp}.h5")
+        discriminator_path = os.path.join(directory, f"ESRGAN_discriminator_x{self.scale_factor}_{timestamp}.h5")
         
         self.generator.save(generator_path)
         self.discriminator.save(discriminator_path)

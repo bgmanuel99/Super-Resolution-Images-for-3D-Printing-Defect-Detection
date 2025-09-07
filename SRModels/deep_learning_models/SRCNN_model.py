@@ -119,8 +119,8 @@ class SRCNNModel:
             )
 
         self._trained = True
-        self._time_callback = callbacks[2]  # EpochTimeCallback
-        self._memory_callback = callbacks[3]  # EpochMemoryCallback
+        
+        return callbacks[2], callbacks[3]  # Return time and memory callbacks
 
     def evaluate(self, X_test, Y_test):
         """Evaluates the model."""

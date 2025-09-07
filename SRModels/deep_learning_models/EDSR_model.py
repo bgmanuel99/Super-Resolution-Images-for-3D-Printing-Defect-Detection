@@ -316,9 +316,8 @@ class EDSR:
             )
 
         self.trained = True
-        # Attach for later access/plotting
-        self._time_callback = callbacks[4]
-        self._memory_callback = callbacks[5]
+        
+        return callbacks[4], callbacks[5]  # Return time and memory callbacks
 
     def evaluate(self, X_test, Y_test):
         """Evaluate the model on test data and print loss, PSNR, and SSIM."""
@@ -425,15 +424,16 @@ class EDSR:
 
         return sr_img
 
-    def save(self, directory="models/EDSR"):
+    def save(self, directory, timestamp):
         """Save the trained model with a timestamp in the specified directory."""
         
         if not self.trained:
             raise RuntimeError("Cannot save an untrained model.")
+        if not directory:
+            raise ValueError("Directory path must be provided.")
 
         os.makedirs(directory, exist_ok=True)
         
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(directory, f"EDSR_x{self.scale_factor}_{timestamp}.h5")
         
         self.model.save(path)
