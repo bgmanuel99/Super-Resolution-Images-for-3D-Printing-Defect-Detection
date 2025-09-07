@@ -3,6 +3,7 @@ import sys
 import datetime
 
 import numpy as np
+import cv2
 import tensorflow as tf
 from keras import Model
 from keras.optimizers import Adam
@@ -121,6 +122,9 @@ class ESRGAN:
             discriminator_pretrained_path: Path to pretrained discriminator model
         """
         
+        # Persist scale_factor for inference utilities
+        self.scale_factor = scale_factor
+
         if from_trained:
             # Check if paths exist
             if generator_pretrained_path is None or not os.path.exists(generator_pretrained_path):
@@ -773,6 +777,107 @@ class ESRGAN:
         print(f"  Average Perceptual Loss: {avg_perceptual_loss:.4f}")
         
         return metrics
+    
+    def super_resolve_image(self, lr_img_path, patch_size_lr=48, stride=24, batch_size=16):
+        """Patch-wise super-resolution using the ESRGAN generator.
+        Follows SRCNN/EDSR flow: reflect padding, patch extraction, batch predict, overlap-averaged reconstruction.
+        Accounts for ESRGAN's [-1,1] tanh output by normalizing inputs to [-1,1] and denormalizing outputs to [0,1].
+
+        Args:
+            lr_img_path: Path to LR image file.
+            patch_size_lr: LR patch size used for sliding window.
+            stride: Stride for LR patch extraction.
+            batch_size: Batch size for generator prediction.
+
+        Returns:
+            np.ndarray float32 RGB image in [0,1] with shape (H*scale, W*scale, 3).
+        """
+
+        if not self.trained:
+            raise RuntimeError("Model has not been trained or loaded.")
+        if self.generator is None:
+            raise RuntimeError("Generator is not initialized.")
+        if not hasattr(self, 'scale_factor') or self.scale_factor is None:
+            raise ValueError("scale_factor is not set. Ensure setup_model was called.")
+
+        scale = self.scale_factor
+
+        # --- Helpers mirroring EDSR/SRCNN structure ---
+        def add_padding(image, patch_size, stride):
+            h, w, c = image.shape
+            pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
+            pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
+            pad_h = max(pad_h, patch_size - stride)
+            pad_w = max(pad_w, patch_size - stride)
+            padded = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
+            return padded, (h, w)
+
+        def extract_lr_patches(img, patch_size, stride):
+            h, w, _ = img.shape
+            patches, positions = [], []
+            for i in range(0, h - patch_size + 1, stride):
+                for j in range(0, w - patch_size + 1, stride):
+                    patches.append(img[i:i+patch_size, j:j+patch_size, :])
+                    positions.append((i, j))
+            if len(patches) == 0:
+                return np.empty((0, patch_size, patch_size, 3), dtype=np.float32), positions
+            return np.asarray(patches, dtype=np.float32), positions
+
+        def reconstruct_from_hr_patches(hr_patches, positions, padded_lr_shape, original_lr_shape, patch_size_lr, scale):
+            h_lr_pad, w_lr_pad = padded_lr_shape[:2]
+            h_lr_orig, w_lr_orig = original_lr_shape
+            c = 3
+            patch_size_hr = patch_size_lr * scale
+            H_hr_pad = h_lr_pad * scale
+            W_hr_pad = w_lr_pad * scale
+
+            recon = np.zeros((H_hr_pad, W_hr_pad, c), dtype=np.float32)
+            weight = np.zeros_like(recon, dtype=np.float32)
+
+            for patch, (i, j) in zip(hr_patches, positions):
+                hi, hj = i * scale, j * scale
+                recon[hi:hi+patch_size_hr, hj:hj+patch_size_hr] += patch
+                weight[hi:hi+patch_size_hr, hj:hj+patch_size_hr] += 1.0
+
+            recon = np.divide(recon, weight, out=np.zeros_like(recon), where=weight != 0)
+            out_h, out_w = h_lr_orig * scale, w_lr_orig * scale
+            return np.clip(recon[:out_h, :out_w, :], 0.0, 1.0)
+
+        # --- Load and preprocess LR ---
+        lr_bgr = cv2.imread(lr_img_path, cv2.IMREAD_COLOR)
+        if lr_bgr is None:
+            raise FileNotFoundError(f"Could not read image at {lr_img_path}")
+        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+        # Pad LR image
+        lr_padded, lr_orig_shape = add_padding(lr_rgb, patch_size_lr, stride)
+        print(f"Original LR shape: {lr_rgb.shape}")
+        print(f"Padded LR shape:   {lr_padded.shape}")
+
+        # Extract LR patches and normalize to [-1,1]
+        lr_patches, positions = extract_lr_patches(lr_padded, patch_size_lr, stride)
+        print(f"Total patches: {len(lr_patches)}")
+
+        if lr_patches.shape[0] == 0:
+            # Very small image fallback: run once on full image
+            inp = (np.expand_dims(lr_rgb, 0) * 2.0) - 1.0
+            hr_pred = self.generator.predict(inp, verbose=0)[0]
+            hr_pred = (hr_pred + 1.0) / 2.0
+            h, w = lr_orig_shape
+            return np.clip(hr_pred[:h*scale, :w*scale, :], 0.0, 1.0)
+
+        lr_patches_norm = (lr_patches * 2.0) - 1.0
+
+        # Predict HR patches; outputs are in [-1,1] due to tanh
+        hr_patches = self.generator.predict(lr_patches_norm, batch_size=batch_size, verbose=0)
+        hr_patches = (hr_patches + 1.0) / 2.0  # to [0,1]
+
+        # Reconstruct HR image and crop to target size
+        sr_img = reconstruct_from_hr_patches(
+            hr_patches, positions, lr_padded.shape, lr_orig_shape, patch_size_lr, scale
+        )
+
+        return sr_img
     
     def save(self, directory="models/ESRGAN", scale_factor=2):
         """Save the trained model with a timestamp in the specified directory."""
