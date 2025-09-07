@@ -3,13 +3,13 @@ Time and memory tracking utilities for training.
 
 Includes:
 - EpochTimeCallback: Keras Callback to record per-epoch training time.
-- EpochMemoryCallback: Keras Callback to record per-epoch CPU/GPU memory stats.
+- EpochMemoryCallback: Keras Callback to record per-epoch GPU memory stats.
 - EpochTimeTracker: Manual tracker for custom loops (e.g., ESRGAN).
 - EpochMemoryTracker: Manual tracker for custom loops (e.g., ESRGAN).
 """
 
 import time
-import psutil
+import numpy as np
 import tensorflow as tf
 from keras.callbacks import Callback
 
@@ -19,7 +19,7 @@ def _bytes_to_mb(b):
 	return float(b) / (1024.0 * 1024.0)
 
 class EpochTimeCallback(Callback):
-	"""Keras Callback: records wall-clock time per epoch."""
+	"""Keras Callback: records wall-clock time per epoch"""
 
 	def __init__(self):
 		super().__init__()
@@ -38,17 +38,11 @@ class EpochTimeCallback(Callback):
 			logs["epoch_time_sec"] = elapsed
 
 	# Convenience accessors
-	def as_dict(self):
-		return {"epoch_time_sec": list(self.epoch_times_sec)}
+	def mean_time_value(self):
+		return float(np.mean(self.epoch_times_sec))
 
 class EpochMemoryCallback(Callback):
-	"""Keras Callback: records CPU and GPU memory per epoch.
-
-	Notes:
-	- CPU memory is process RSS via psutil if available.
-	- GPU memory uses tf.config.experimental.get_memory_info if available.
-	  Metrics recorded as deltas between epoch begin and end, plus end values.
-	"""
+	"""Keras Callback: records GPU memory per epoch"""
 
 	def __init__(self, track_cpu=True, track_gpu=True, gpu_device="GPU:0"):
 		super().__init__()
@@ -56,30 +50,12 @@ class EpochMemoryCallback(Callback):
 		self.track_gpu = track_gpu
 		self.gpu_device = gpu_device
 
-		# Per-epoch recorded metrics
-		self.cpu_rss_begin_mb = []
-		self.cpu_rss_end_mb = []
-		self.cpu_rss_delta_mb = []
-
-		self.gpu_current_begin_mb = []
-		self.gpu_current_end_mb = []
-		self.gpu_current_delta_mb = []
-
-		self.gpu_peak_begin_mb = []
-		self.gpu_peak_end_mb = []
-		self.gpu_peak_delta_mb = []
-
+		# Per-epoch recorded metrics (only mean current and peak GPU memory)
+		self.gpu_mean_current_mb = []
+		self.gpu_peak_mb = []
+  
 		# Internals for epoch-begin baselines
-		self._cpu_begin_bytes = None
 		self._gpu_begin = None
-
-	def _read_cpu_bytes(self):
-		if not self.track_cpu or psutil is None:
-			return None
-		try:
-			return psutil.Process().memory_info().rss
-		except Exception:
-			return None
 
 	def _read_gpu_info(self):
 		if not self.track_gpu or tf is None:
@@ -92,76 +68,46 @@ class EpochMemoryCallback(Callback):
 
 	def on_epoch_begin(self, epoch, logs=None):
 		# Capture baselines
-		self._cpu_begin_bytes = self._read_cpu_bytes()
 		self._gpu_begin = self._read_gpu_info()
 
 	def on_epoch_end(self, epoch, logs=None):
 		logs = logs or {}
 
-		# CPU memory
-		cpu_begin = self._cpu_begin_bytes
-		cpu_end = self._read_cpu_bytes()
-		self.cpu_rss_begin_mb.append(_bytes_to_mb(cpu_begin))
-		self.cpu_rss_end_mb.append(_bytes_to_mb(cpu_end))
-		if cpu_begin is not None and cpu_end is not None:
-			self.cpu_rss_delta_mb.append(_bytes_to_mb(cpu_end - cpu_begin))
-		else:
-			self.cpu_rss_delta_mb.append(None)
-
 		# GPU memory
 		gpu_begin = self._gpu_begin
 		gpu_end = self._read_gpu_info()
 
-		# Current
 		cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
 		cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
-		self.gpu_current_begin_mb.append(_bytes_to_mb(cur_begin))
-		self.gpu_current_end_mb.append(_bytes_to_mb(cur_end))
 		if cur_begin is not None and cur_end is not None:
-			self.gpu_current_delta_mb.append(_bytes_to_mb(cur_end - cur_begin))
+			mean_current_bytes = (cur_begin + cur_end) / 2.0
+			gpu_mean_current_mb = _bytes_to_mb(mean_current_bytes)
 		else:
-			self.gpu_current_delta_mb.append(None)
+			gpu_mean_current_mb = _bytes_to_mb(cur_end) if cur_end is not None else None
+		self.gpu_mean_current_mb.append(gpu_mean_current_mb)
 
-		# Peak
 		peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
 		peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
-		self.gpu_peak_begin_mb.append(_bytes_to_mb(peak_begin))
-		self.gpu_peak_end_mb.append(_bytes_to_mb(peak_end))
 		if peak_begin is not None and peak_end is not None:
-			self.gpu_peak_delta_mb.append(_bytes_to_mb(peak_end - peak_begin))
+			gpu_peak_mb = _bytes_to_mb(max(peak_begin, peak_end))
+		elif peak_end is not None:
+			gpu_peak_mb = _bytes_to_mb(peak_end)
 		else:
-			self.gpu_peak_delta_mb.append(None)
+			gpu_peak_mb = None
+		self.gpu_peak_mb.append(gpu_peak_mb)
 
-		# Expose some values in logs for Keras history
-		logs["cpu_rss_end_mb"] = self.cpu_rss_end_mb[-1]
-		logs["cpu_rss_delta_mb"] = self.cpu_rss_delta_mb[-1]
-		logs["gpu_peak_end_mb"] = self.gpu_peak_end_mb[-1]
-		logs["gpu_peak_delta_mb"] = self.gpu_peak_delta_mb[-1]
+		# Expose values in logs for Keras history
+		logs["gpu_mean_current_mb"] = gpu_mean_current_mb
+		logs["gpu_peak_mb"] = gpu_peak_mb
 
 	def as_dict(self):
 		return {
-			"cpu_rss_begin_mb": list(self.cpu_rss_begin_mb),
-			"cpu_rss_end_mb": list(self.cpu_rss_end_mb),
-			"cpu_rss_delta_mb": list(self.cpu_rss_delta_mb),
-			"gpu_current_begin_mb": list(self.gpu_current_begin_mb),
-			"gpu_current_end_mb": list(self.gpu_current_end_mb),
-			"gpu_current_delta_mb": list(self.gpu_current_delta_mb),
-			"gpu_peak_begin_mb": list(self.gpu_peak_begin_mb),
-			"gpu_peak_end_mb": list(self.gpu_peak_end_mb),
-			"gpu_peak_delta_mb": list(self.gpu_peak_delta_mb),
+			"gpu_mean_current_mb": float(np.mean(self.gpu_mean_current_mb)),
+			"gpu_peak_mb": float(np.max(self.gpu_peak_mb)),
 		}
 
 class EpochTimeTracker:
-	"""Manual epoch time tracker for custom loops (e.g., ESRGAN).
-
-	Usage:
-		t = EpochTimeTracker()
-		for epoch in range(epochs):
-			t.begin_epoch()
-			...  # training work
-			t.end_epoch()
-		print(t.epoch_times_sec)
-	"""
+	"""Manual epoch time tracker for custom loops (e.g., ESRGAN)"""
 
 	def __init__(self):
 		self._t0 = None
@@ -176,50 +122,20 @@ class EpochTimeTracker:
 		self.epoch_times_sec.append(time.perf_counter() - self._t0)
 		self._t0 = None
 
-	def as_dict(self):
-		return {"epoch_time_sec": list(self.epoch_times_sec)}
+	def mean_time_value(self):
+		return float(np.mean(self.epoch_times_sec))
 
 class EpochMemoryTracker:
-	"""Manual epoch memory tracker for custom loops (e.g., ESRGAN).
-
-	Records CPU RSS and GPU current/peak deltas per epoch.
-
-	Usage:
-		m = EpochMemoryTracker(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
-		for epoch in range(epochs):
-			m.begin_epoch()
-			...  # training work
-			m.end_epoch()
-		data = m.as_dict()
-	"""
+	"""Manual epoch memory tracker for custom loops (e.g., ESRGAN)"""
 
 	def __init__(self, track_cpu=True, track_gpu=True, gpu_device="GPU:0"):
 		self.track_cpu = track_cpu
 		self.track_gpu = track_gpu
 		self.gpu_device = gpu_device
 
-		self.cpu_rss_begin_mb = []
-		self.cpu_rss_end_mb = []
-		self.cpu_rss_delta_mb = []
-
-		self.gpu_current_begin_mb = []
-		self.gpu_current_end_mb = []
-		self.gpu_current_delta_mb = []
-
-		self.gpu_peak_begin_mb = []
-		self.gpu_peak_end_mb = []
-		self.gpu_peak_delta_mb = []
-
-		self._cpu_begin_bytes = None
+		self.gpu_mean_current_mb = []
+		self.gpu_peak_mb = []
 		self._gpu_begin = None
-
-	def _read_cpu_bytes(self):
-		if not self.track_cpu or psutil is None:
-			return None
-		try:
-			return psutil.Process().memory_info().rss
-		except Exception:
-			return None
 
 	def _read_gpu_info(self):
 		if not self.track_gpu or tf is None:
@@ -230,55 +146,37 @@ class EpochMemoryTracker:
 			return None
 
 	def begin_epoch(self):
-		self._cpu_begin_bytes = self._read_cpu_bytes()
 		self._gpu_begin = self._read_gpu_info()
 
 	def end_epoch(self):
-		# CPU
-		cpu_begin = self._cpu_begin_bytes
-		cpu_end = self._read_cpu_bytes()
-		self.cpu_rss_begin_mb.append(_bytes_to_mb(cpu_begin))
-		self.cpu_rss_end_mb.append(_bytes_to_mb(cpu_end))
-		if cpu_begin is not None and cpu_end is not None:
-			self.cpu_rss_delta_mb.append(_bytes_to_mb(cpu_end - cpu_begin))
-		else:
-			self.cpu_rss_delta_mb.append(None)
-
 		# GPU
 		gpu_begin = self._gpu_begin
 		gpu_end = self._read_gpu_info()
 
 		cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
 		cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
-		self.gpu_current_begin_mb.append(_bytes_to_mb(cur_begin))
-		self.gpu_current_end_mb.append(_bytes_to_mb(cur_end))
 		if cur_begin is not None and cur_end is not None:
-			self.gpu_current_delta_mb.append(_bytes_to_mb(cur_end - cur_begin))
+			mean_current_bytes = (cur_begin + cur_end) / 2.0
+			gpu_mean_current_mb = _bytes_to_mb(mean_current_bytes)
 		else:
-			self.gpu_current_delta_mb.append(None)
+			gpu_mean_current_mb = _bytes_to_mb(cur_end) if cur_end is not None else None
+		self.gpu_mean_current_mb.append(gpu_mean_current_mb)
 
 		peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
 		peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
-		self.gpu_peak_begin_mb.append(_bytes_to_mb(peak_begin))
-		self.gpu_peak_end_mb.append(_bytes_to_mb(peak_end))
 		if peak_begin is not None and peak_end is not None:
-			self.gpu_peak_delta_mb.append(_bytes_to_mb(peak_end - peak_begin))
+			gpu_peak_mb = _bytes_to_mb(max(peak_begin, peak_end))
+		elif peak_end is not None:
+			gpu_peak_mb = _bytes_to_mb(peak_end)
 		else:
-			self.gpu_peak_delta_mb.append(None)
+			gpu_peak_mb = None
+		self.gpu_peak_mb.append(gpu_peak_mb)
 
 		# Reset baselines
-		self._cpu_begin_bytes = None
 		self._gpu_begin = None
 
 	def as_dict(self):
 		return {
-			"cpu_rss_begin_mb": list(self.cpu_rss_begin_mb),
-			"cpu_rss_end_mb": list(self.cpu_rss_end_mb),
-			"cpu_rss_delta_mb": list(self.cpu_rss_delta_mb),
-			"gpu_current_begin_mb": list(self.gpu_current_begin_mb),
-			"gpu_current_end_mb": list(self.gpu_current_end_mb),
-			"gpu_current_delta_mb": list(self.gpu_current_delta_mb),
-			"gpu_peak_begin_mb": list(self.gpu_peak_begin_mb),
-			"gpu_peak_end_mb": list(self.gpu_peak_end_mb),
-			"gpu_peak_delta_mb": list(self.gpu_peak_delta_mb),
+			"gpu_mean_current_mb": float(np.mean(self.gpu_mean_current_mb)),
+			"gpu_peak_mb": float(np.max(self.gpu_peak_mb)),
 		}

@@ -247,7 +247,6 @@ class SRCNNModel:
         def _mb(x):
             return None if x is None else float(x) / (1024.0 * 1024.0)
 
-
         cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
         cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
         peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
