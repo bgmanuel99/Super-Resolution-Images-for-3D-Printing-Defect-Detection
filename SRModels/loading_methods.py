@@ -133,8 +133,19 @@ def load_dataset_as_patches(
             interp_method = cv2.INTER_CUBIC
             if interpolation_map is not None:
                 interp_method = interpolation_map.get(fname, cv2.INTER_CUBIC)
+                
+                name_to_code = {
+                    'INTER_LINEAR': cv2.INTER_LINEAR,
+                    'INTER_CUBIC': cv2.INTER_CUBIC,
+                    'INTER_AREA': cv2.INTER_AREA,
+                    'INTER_LANCZOS4': cv2.INTER_LANCZOS4,
+                }
+                
+                if interp_method in name_to_code:
+                    interp_code = name_to_code[interp_method]
+            
             lr_up = cv2.resize(
-                lr_img, (hr_w, hr_h), interpolation=interp_method
+                lr_img, (hr_w, hr_h), interpolation=interp_code
             )
 
             # Add padding to ensure full coverage
