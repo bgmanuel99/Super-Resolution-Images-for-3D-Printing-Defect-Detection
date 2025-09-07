@@ -11,7 +11,6 @@ Includes:
 import time
 import psutil
 import tensorflow as tf
-from __future__ import annotations
 from keras.callbacks import Callback
 
 def _bytes_to_mb(b):
@@ -22,7 +21,7 @@ def _bytes_to_mb(b):
 class EpochTimeCallback(Callback):
 	"""Keras Callback: records wall-clock time per epoch."""
 
-	def __init__(self) -> None:
+	def __init__(self):
 		super().__init__()
 		self._t0 = None
 		self.epoch_times_sec = []
@@ -51,7 +50,7 @@ class EpochMemoryCallback(Callback):
 	  Metrics recorded as deltas between epoch begin and end, plus end values.
 	"""
 
-	def __init__(self, track_cpu: bool = True, track_gpu: bool = True, gpu_device: str = "GPU:0") -> None:
+	def __init__(self, track_cpu=True, track_gpu=True, gpu_device="GPU:0"):
 		super().__init__()
 		self.track_cpu = track_cpu
 		self.track_gpu = track_gpu
@@ -164,14 +163,14 @@ class EpochTimeTracker:
 		print(t.epoch_times_sec)
 	"""
 
-	def __init__(self) -> None:
+	def __init__(self):
 		self._t0 = None
 		self.epoch_times_sec = []
 
-	def begin_epoch(self) -> None:
+	def begin_epoch(self):
 		self._t0 = time.perf_counter()
 
-	def end_epoch(self) -> None:
+	def end_epoch(self):
 		if self._t0 is None:
 			return
 		self.epoch_times_sec.append(time.perf_counter() - self._t0)
@@ -194,7 +193,7 @@ class EpochMemoryTracker:
 		data = m.as_dict()
 	"""
 
-	def __init__(self, track_cpu: bool = True, track_gpu: bool = True, gpu_device: str = "GPU:0") -> None:
+	def __init__(self, track_cpu=True, track_gpu=True, gpu_device="GPU:0"):
 		self.track_cpu = track_cpu
 		self.track_gpu = track_gpu
 		self.gpu_device = gpu_device
@@ -230,11 +229,11 @@ class EpochMemoryTracker:
 		except Exception:
 			return None
 
-	def begin_epoch(self) -> None:
+	def begin_epoch(self):
 		self._cpu_begin_bytes = self._read_cpu_bytes()
 		self._gpu_begin = self._read_gpu_info()
 
-	def end_epoch(self) -> None:
+	def end_epoch(self):
 		# CPU
 		cpu_begin = self._cpu_begin_bytes
 		cpu_end = self._read_cpu_bytes()

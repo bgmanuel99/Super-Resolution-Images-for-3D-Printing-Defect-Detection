@@ -4,7 +4,6 @@ import sys
 import cv2
 import numpy as np
 import tensorflow as tf
-import matplotlib.pyplot as plt
 from keras.optimizers import Adam
 from keras.layers import Conv2D, InputLayer
 from keras.models import Sequential, load_model
@@ -13,6 +12,7 @@ from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 from SRModels.metrics import psnr, ssim
 from SRModels.data_augmentation import AdvancedAugmentGenerator
+from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
 
 class SRCNNModel:
     def __init__(self):
@@ -81,7 +81,9 @@ class SRCNNModel:
         # Callbacks
         callbacks = [
             EarlyStopping(monitor="loss", patience=3, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="loss", factor=0.5, patience=2, min_lr=1e-6, verbose=1)
+            ReduceLROnPlateau(monitor="loss", factor=0.5, patience=2, min_lr=1e-6, verbose=1), 
+            EpochTimeCallback(), 
+            EpochMemoryCallback(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
         ]
         
         if use_augmentation:
@@ -117,6 +119,8 @@ class SRCNNModel:
             )
 
         self._trained = True
+        self._time_callback = callbacks[2]  # EpochTimeCallback
+        self._memory_callback = callbacks[3]  # EpochMemoryCallback
 
     def evaluate(self, X_test, Y_test):
         """Evaluates the model."""

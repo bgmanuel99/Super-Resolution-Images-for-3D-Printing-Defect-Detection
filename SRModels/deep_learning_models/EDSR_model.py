@@ -28,6 +28,7 @@ sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 
 from SRModels.metrics import psnr, ssim
 from SRModels.data_augmentation import AdvancedAugmentGenerator
+from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
 
 class CosineAnnealingWithRestarts(Callback):
     def __init__(self, T_max, eta_max, eta_min=0, T_mult=2):
@@ -277,7 +278,9 @@ class EDSR:
             EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True), 
             ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-7, verbose=1), 
             CosineAnnealingWithRestarts(T_max=10, eta_max=1e-3, eta_min=1e-5, T_mult=2), 
-            CyclicLR(base_lr=1e-5, max_lr=1e-3, step_size=2000, mode='triangular')
+            CyclicLR(base_lr=1e-5, max_lr=1e-3, step_size=2000, mode='triangular'), 
+            EpochTimeCallback(), 
+            EpochMemoryCallback(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
         ]
 
         if use_augmentation:
@@ -313,6 +316,9 @@ class EDSR:
             )
 
         self.trained = True
+        # Attach for later access/plotting
+        self._time_callback = callbacks[4]
+        self._memory_callback = callbacks[5]
 
     def evaluate(self, X_test, Y_test):
         """Evaluate the model on test data and print loss, PSNR, and SSIM."""

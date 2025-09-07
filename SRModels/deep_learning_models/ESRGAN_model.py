@@ -28,6 +28,7 @@ from keras.backend import eval, mean, square, binary_crossentropy
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 
 from SRModels.data_augmentation import AdvancedAugmentGenerator
+from SRModels.deep_learning_models.callbacks import EpochTimeTracker, EpochMemoryTracker
 
 class SelfAttention(Layer):
     """
@@ -647,9 +648,18 @@ class ESRGAN:
         if val_data_struct is not None and normalize:
             val_data_struct = val_data_struct.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
 
+        # Trackers
+        time_tracker = EpochTimeTracker()
+        memory_tracker = EpochMemoryTracker(track_cpu=True, track_gpu=True, gpu_device="GPU:0")
+
         # Bucle de entrenamiento
         for epoch in range(epochs):
             print(f"Epoch {epoch + 1}/{epochs}")
+
+            if time_tracker is not None:
+                time_tracker.begin_epoch()
+            if memory_tracker is not None:
+                memory_tracker.begin_epoch()
             
             # Métricas acumuladas
             epoch_losses = {
@@ -708,6 +718,16 @@ class ESRGAN:
                 print(f"  Validation -> PSNR: {np.mean(val_psnr):.2f}, SSIM: {np.mean(val_ssim):.4f}")
 
             self.trained = True
+
+            # End-of-epoch tracking
+            if memory_tracker is not None:
+                memory_tracker.end_epoch()
+            if time_tracker is not None:
+                time_tracker.end_epoch()
+
+        # Expose trackers for later plotting
+        self._time_tracker = time_tracker
+        self._memory_tracker = memory_tracker
     
     def evaluate(self, test_dataset):
         """
