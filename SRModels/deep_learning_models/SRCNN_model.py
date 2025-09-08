@@ -238,7 +238,7 @@ class SRCNNModel:
         gpu_begin = _read_gpu_info()
         t0 = time.perf_counter()
 
-        preds = self.model.predict(patches, batch_size=16)
+        preds = self.model.predict(patches, batch_size=16, verbose=0)
 
         elapsed = time.perf_counter() - t0
         gpu_end = _read_gpu_info()
