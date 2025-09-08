@@ -157,10 +157,6 @@ def load_dataset_as_patches(
                 for j in range(0, W - patch_size + 1, stride):
                     hr_patch = hr_proc[i:i+patch_size, j:j+patch_size, :]
                     lr_patch = lr_proc[i:i+patch_size, j:j+patch_size, :]
-
-                    hr_patch = np.clip(hr_patch, 0.0, 1.0)
-                    lr_patch = np.clip(lr_patch, 0.0, 1.0)
-
                     X.append(lr_patch)
                     Y.append(hr_patch)
 

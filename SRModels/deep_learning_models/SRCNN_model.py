@@ -22,7 +22,7 @@ class SRCNNModel:
 
     def setup_model(
             self, 
-            input_shape=(33, 33, 3), 
+            input_shape=None, 
             learning_rate=1e-4, 
             loss="mean_squared_error", 
             from_pretrained=False, 
@@ -37,6 +37,9 @@ class SRCNNModel:
             print(f"Loaded pretrained model from {pretrained_path}")
             self._trained = True
         else:
+            if input_shape is None:
+                raise ValueError("input_shape must be provided when not using a pretrained model.")
+            
             self._build_model(input_shape)
             self._compile_model(learning_rate, loss)
 
@@ -45,16 +48,19 @@ class SRCNNModel:
         
         self.model = Sequential([
             InputLayer(input_shape=input_shape), 
-            Conv2D(64, (9, 9), activation="relu", padding="same"),
+            Conv2D(96, (9, 9), activation="relu", padding="same"),
             Conv2D(32, (1, 1), activation="relu", padding="same"),
             Conv2D(3, (5, 5), activation="linear", padding="same")
         ])
+
+    def _charbonnier_loss(self, y_true, y_pred, eps=1e-3):
+        return tf.reduce_mean(tf.sqrt(tf.square(y_pred - y_true) + eps**2))
 
     def _compile_model(self, learning_rate, loss):
         """Compiles the model."""
         
         optimizer = Adam(learning_rate=learning_rate)
-        self.model.compile(optimizer=optimizer, loss=loss, metrics=[psnr, ssim])
+        self.model.compile(optimizer=optimizer, loss=self._charbonnier_loss, metrics=[psnr, ssim])
         self.model.summary()
 
     def fit(
@@ -78,8 +84,8 @@ class SRCNNModel:
             print("Training on CPU")
         
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=8, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-7, verbose=1),
+            EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-7, verbose=1),
             EpochTimeCallback(),
             EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]
