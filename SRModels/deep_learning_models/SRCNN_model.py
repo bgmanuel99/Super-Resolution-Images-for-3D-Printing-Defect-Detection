@@ -218,15 +218,10 @@ class SRCNNModel:
 
         # Agregar padding
         padded_img, original_shape = add_padding(img_lr_up, patch_size, stride)
-        
-        print(f"Original shape: {img_lr_up.shape}")
-        print(f"Padded shape: {padded_img.shape}")
 
         # Extraer patches
         patches, positions = extract_patches_from_image(padded_img, patch_size, stride)
         patches = np.array(patches)
-        
-        print(f"Total patches: {len(patches)}")
 
         # Predict (measure only the model inference time & GPU memory)
         def _read_gpu_info(device="GPU:0"):

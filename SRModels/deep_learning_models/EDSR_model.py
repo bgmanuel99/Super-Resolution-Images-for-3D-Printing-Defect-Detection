@@ -401,12 +401,8 @@ class EDSR:
         # --- Pad LR image ---
         lr_img_padded, original_lr_shape = add_padding(lr_img, patch_size_lr, stride)
 
-        print(f"Original LR shape: {lr_img.shape}")
-        print(f"Padded LR shape:   {lr_img_padded.shape}")
-
         # --- Extract LR patches ---
         lr_patches, positions = extract_patches_from_image(lr_img_padded, patch_size_lr, stride)
-        print(f"Total patches: {len(lr_patches)}")
 
         # --- Predict HR patches in batch (measure time and GPU memory around predict) ---
         def _read_gpu_info(device="GPU:0"):

@@ -876,12 +876,9 @@ class ESRGAN:
 
         # Pad LR image
         lr_padded, lr_orig_shape = add_padding(lr_img, patch_size_lr, stride)
-        print(f"Original LR shape: {lr_img.shape}")
-        print(f"Padded LR shape:   {lr_padded.shape}")
 
         # Extract LR patches and normalize to [-1,1]
         lr_patches, positions = extract_lr_patches(lr_padded, patch_size_lr, stride)
-        print(f"Total patches: {len(lr_patches)}")
 
         lr_patches_norm = (lr_patches * 2.0) - 1.0
 
