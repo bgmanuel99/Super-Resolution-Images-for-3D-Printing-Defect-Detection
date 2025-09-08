@@ -192,8 +192,10 @@ class FineTunedVGG16:
     ):
         """Classify an image by extracting patches and aggregating predictions.
 
-        Uses a max-probability rule across all patch predictions. Returns the
-        winning class index and its probability as the model's confidence.
+        Uses majority voting across patch predictions. The predicted class is
+        the one with the most votes (argmax over per-patch probabilities).
+        Confidence is the mean probability of the winning class across all
+        patches. Ties are broken by the class with higher mean probability.
 
         Args:
             image: np.ndarray HxWxC (RGB). dtype uint8/[0,255] or float.
@@ -265,13 +267,25 @@ class FineTunedVGG16:
         if probs.ndim != 2:
             probs = probs.reshape((probs.shape[0], -1))
 
-        # Max probability across all patches/classes
-        flat_idx = int(np.argmax(probs))
-        num_classes = probs.shape[1]
-        cls = flat_idx % num_classes
-        conf = float(np.max(probs))
+        # Majority voting across patches
+        num_classes = int(probs.shape[1])
+        patch_preds = np.argmax(probs, axis=1)
+        votes = np.bincount(patch_preds, minlength=num_classes)
 
-        return cls, conf
+        # Handle ties by choosing the class with highest mean probability
+        top_vote = votes.max()
+        top_classes = np.where(votes == top_vote)[0]
+        if len(top_classes) == 1:
+            winning_class = int(top_classes[0])
+        else:
+            mean_probs = probs.mean(axis=0)
+            winning_class = int(
+                top_classes[np.argmax(mean_probs[top_classes])]
+            )
+
+        confidence = float(probs[:, winning_class].mean())
+
+        return winning_class, confidence
 
     def save(self, directory="models/VGG16"):
         if not self.trained:
