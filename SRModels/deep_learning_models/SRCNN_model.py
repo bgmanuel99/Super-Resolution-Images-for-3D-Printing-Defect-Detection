@@ -12,7 +12,7 @@ from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 from SRModels.metrics import psnr, ssim
-from SRModels.data_augmentation import AdvancedAugmentGenerator
+from keras.preprocessing.image import ImageDataGenerator
 from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
 
 class SRCNNModel:
@@ -58,16 +58,14 @@ class SRCNNModel:
         self.model.summary()
 
     def fit(
-            self, 
-            X_train, 
-            Y_train, 
-            X_val, 
-            Y_val, 
-            batch_size=16, 
-            epochs=50, 
-            use_augmentation=True, 
-            use_mix=True, 
-            augment_validation=False):
+            self,
+            X_train,
+            Y_train,
+            X_val,
+            Y_val,
+            batch_size=16,
+            epochs=50,
+            use_augmentation=True):
         """Trains the model with optional data augmentation and callbacks."""
         
         if self.model is None:
@@ -78,38 +76,33 @@ class SRCNNModel:
             print("Training on GPU:", devices[0].name)
         else:
             print("Training on CPU")
-
-        # Callbacks
-        callbacks = [
-            EarlyStopping(monitor="loss", patience=3, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="loss", factor=0.5, patience=2, min_lr=1e-6, verbose=1), 
-            EpochTimeCallback(), 
-            EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0")
-        ]
         
-        if use_augmentation:
-            train_gen = AdvancedAugmentGenerator(X_train, Y_train, batch_size=batch_size, shuffle=True, use_mix=use_mix)
-            
-            if augment_validation:
-                # (Not recommended by default)
-                val_gen = AdvancedAugmentGenerator(X_val, Y_val, batch_size=batch_size, shuffle=False, use_mix=use_mix)
+        callbacks = [
+            EarlyStopping(monitor="val_loss", patience=8, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-7, verbose=1),
+            EpochTimeCallback(),
+            EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
+        ]
 
-                self.model.fit(
-                    train_gen,
-                    steps_per_epoch=len(train_gen),
-                    epochs=epochs,
-                    validation_data=val_gen,
-                    validation_steps=len(val_gen),
-                    callbacks=callbacks
-                )
-            else:
-                self.model.fit(
-                    train_gen,
-                    steps_per_epoch=len(train_gen),
-                    epochs=epochs,
-                    validation_data=(X_val, Y_val),
-                    callbacks=callbacks
-                )
+        if use_augmentation:
+            train_datagen = ImageDataGenerator(
+                rotation_range=15,
+                width_shift_range=0.05,
+                height_shift_range=0.05,
+                zoom_range=0.1,
+                shear_range=0.05,
+                horizontal_flip=True,
+                fill_mode="nearest"
+            )
+            train_gen = train_datagen.flow(X_train, Y_train, batch_size=batch_size, shuffle=True)
+            
+            self.model.fit(
+                train_gen,
+                steps_per_epoch=len(train_gen),
+                epochs=epochs,
+                validation_data=(X_val, Y_val),
+                callbacks=callbacks
+            )
         else:
             self.model.fit(
                 X_train, Y_train,

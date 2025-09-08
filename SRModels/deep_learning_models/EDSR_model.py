@@ -1,13 +1,12 @@
 import os
 import sys
-import math
 import time
 
 import numpy as np
 import tensorflow as tf
 from keras.optimizers import Adam
 from keras.models import Model, load_model
-from keras.callbacks import EarlyStopping, ReduceLROnPlateau, Callback
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.layers import (
     Add, 
     Input, 
@@ -18,7 +17,6 @@ from keras.layers import (
     Multiply, 
     Activation, 
     Concatenate, 
-    SeparableConv2D, 
     GlobalAveragePooling2D, 
     GlobalMaxPooling2D
 )
@@ -26,73 +24,8 @@ from keras.layers import (
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 
 from SRModels.metrics import psnr, ssim
-from SRModels.data_augmentation import AdvancedAugmentGenerator
+from keras.preprocessing.image import ImageDataGenerator
 from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
-
-class CosineAnnealingWithRestarts(Callback):
-    def __init__(self, T_max, eta_max, eta_min=0, T_mult=2):
-        super().__init__()
-        self.T_max = T_max
-        self.eta_max = eta_max
-        self.eta_min = eta_min
-        self.T_mult = T_mult
-        self.epochs_since_restart = 0
-        self.next_restart = T_max
-        self.lr = eta_max
-
-    def on_epoch_begin(self, epoch, logs=None):
-        if epoch == 0:
-            self.lr = self.eta_max
-        elif epoch == self.next_restart:
-            self.epochs_since_restart = 0
-            self.next_restart += self.T_max * self.T_mult
-            self.T_max *= self.T_mult
-            self.lr = self.eta_max
-        else:
-            self.epochs_since_restart += 1
-            cos_inner = (math.pi * self.epochs_since_restart) / self.T_max
-            self.lr = self.eta_min + (self.eta_max - self.eta_min) * (1 + math.cos(cos_inner)) / 2
-            
-        tf.keras.backend.set_value(self.model.optimizer.lr, self.lr)
-    
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        logs['CosineAnnealingWithRestarts_lr'] = self.lr
-
-class CyclicLR(Callback):
-    def __init__(self, base_lr=1e-5, max_lr=1e-3, step_size=2000, mode='triangular'):
-        super().__init__()
-        self.base_lr = base_lr
-        self.max_lr = max_lr
-        self.step_size = step_size
-        self.mode = mode
-        self.iterations = 0
-        self.lr = base_lr
-
-    def clr(self):
-        cycle = math.floor(1 + self.iterations / (2 * self.step_size))
-        x = abs(self.iterations / self.step_size - 2 * cycle + 1)
-        scale = max(0, (1 - x))
-        
-        if self.mode == 'triangular':
-            return self.base_lr + (self.max_lr - self.base_lr) * scale
-        elif self.mode == 'triangular2':
-            return self.base_lr + (self.max_lr - self.base_lr) * scale / (2 ** (cycle - 1))
-        elif self.mode == 'exp_range':
-            gamma = 0.99994
-            return self.base_lr + (self.max_lr - self.base_lr) * scale * (gamma ** self.iterations)
-        else:
-            raise ValueError("Unknown mode: %s" % self.mode)
-
-    def on_train_batch_begin(self, batch, logs=None):
-        self.iterations += 1
-        self.lr = self.clr()
-        
-        tf.keras.backend.set_value(self.model.optimizer.lr, self.lr)
-        
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        logs['CyclicLR'] = self.lr
 
 class EDSR:
     def __init__(self):
@@ -161,23 +94,17 @@ class EDSR:
         
         return Multiply()([x, sa])
     
-    def _residual_block(self, x, num_filters, res_scaling, use_separable=False):
+    def _residual_block(self, x, num_filters, res_scaling):
         """Build a residual block without batch normalization (key feature of EDSR)."""
         
         shortcut = x
         
         # First conv layer
-        if use_separable:
-            x = SeparableConv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
-        else:
-            x = Conv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
+        x = Conv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
         x = Activation("relu")(x)
         
         # Second conv layer
-        if use_separable:
-            x = SeparableConv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
-        else:
-            x = Conv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
+        x = Conv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
         
         # Channel Attention
         x = self._channel_attention(x)
@@ -226,9 +153,8 @@ class EDSR:
         head_output = x
         
         # Residual blocks (body)
-        for i in range(num_res_blocks):
-            use_separable = (i % 2 == 0)
-            x = self._residual_block(x, num_filters, res_scaling, use_separable)
+        for _ in range(num_res_blocks):
+            x = self._residual_block(x, num_filters, res_scaling)
         
         # Final convolution of the body
         x = Conv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
@@ -240,14 +166,22 @@ class EDSR:
         x = self._upsampling_block(x, scale_factor, num_filters)
         
         # Final convolution to produce RGB output
-        outputs = Conv2D(channels, (3, 3), padding="same", kernel_initializer="he_normal")(x)
+        x = Conv2D(channels, (3, 3), padding="same", kernel_initializer="he_normal")(x)
+        
+        outputs = Lambda(lambda t: tf.clip_by_value(t, 0.0, 1.0), name="clip_0_1")(x)
         
         self.model = Model(inputs, outputs, name="EDSR")
 
     def _compile_model(self, learning_rate, loss):
         """Compile the model with Adam optimizer and specified loss, including PSNR and SSIM metrics."""
         
-        optimizer = Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-8)
+        optimizer = Adam(
+            learning_rate=learning_rate, 
+            beta_1=0.9, 
+            beta_2=0.999, 
+            epsilon=1e-8, 
+            clipnorm=1.0
+        )
         self.model.compile(optimizer=optimizer, loss=loss, metrics=[psnr, ssim])
         self.model.summary()
 
@@ -259,9 +193,7 @@ class EDSR:
             Y_val, 
             batch_size=16, 
             epochs=300, 
-            use_augmentation=True, 
-            use_mix=True, 
-            augment_validation=False):
+            use_augmentation=True):
         """Train the model using optional image data augmentation and standard callbacks."""
         
         if self.model is None:
@@ -274,37 +206,31 @@ class EDSR:
             print("Training on CPU")
 
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True), 
-            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-7, verbose=1), 
-            CosineAnnealingWithRestarts(T_max=10, eta_max=1e-3, eta_min=1e-5, T_mult=2), 
-            CyclicLR(base_lr=1e-5, max_lr=1e-3, step_size=2000, mode='triangular'), 
-            EpochTimeCallback(), 
-            EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0")
+            EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-7, verbose=1),
+            EpochTimeCallback(),
+            EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]
 
         if use_augmentation:
-            train_gen = AdvancedAugmentGenerator(X_train, Y_train, batch_size=batch_size, shuffle=True, use_mix=use_mix)
-
-            if augment_validation:
-                # (Not recommended by default)
-                val_gen = AdvancedAugmentGenerator(X_val, Y_val, batch_size=batch_size, shuffle=False, use_mix=use_mix)
-
-                self.model.fit(
-                    train_gen,
-                    steps_per_epoch=len(train_gen),
-                    epochs=epochs,
-                    validation_data=val_gen,
-                    validation_steps=len(val_gen),
-                    callbacks=callbacks
-                )
-            else:
-                self.model.fit(
-                    train_gen,
-                    steps_per_epoch=len(train_gen),
-                    epochs=epochs,
-                    validation_data=(X_val, Y_val),
-                    callbacks=callbacks
-                )
+            train_datagen = ImageDataGenerator(
+                rotation_range=15,
+                width_shift_range=0.05,
+                height_shift_range=0.05,
+                zoom_range=0.1,
+                shear_range=0.05,
+                horizontal_flip=True,
+                fill_mode="nearest"
+            )
+            train_gen = train_datagen.flow(X_train, Y_train, batch_size=batch_size, shuffle=True)
+            
+            self.model.fit(
+                train_gen,
+                steps_per_epoch=len(train_gen),
+                epochs=epochs,
+                validation_data=(X_val, Y_val),
+                callbacks=callbacks
+            )
         else:
             self.model.fit(
                 X_train, Y_train,
@@ -315,8 +241,7 @@ class EDSR:
             )
 
         self.trained = True
-        
-        return callbacks[4], callbacks[5]  # Return time and memory callbacks
+        return callbacks[2], callbacks[3]  # Return time and memory callbacks
 
     def evaluate(self, X_test, Y_test):
         """Evaluate the model on test data and print loss, PSNR, and SSIM."""

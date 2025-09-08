@@ -127,66 +127,65 @@ def load_dataset_as_patches(
         )
 
         hr_h, hr_w, _ = hr_img.shape
-        lr_h, lr_w, _ = lr_img.shape
 
         if mode == 'srcnn':
-            interp_method = cv2.INTER_CUBIC
+            # Choose interpolation code safely
+            interp_code = cv2.INTER_CUBIC
             if interpolation_map is not None:
                 interp_method = interpolation_map.get(fname, cv2.INTER_CUBIC)
-                
-                name_to_code = {
-                    'INTER_LINEAR': cv2.INTER_LINEAR,
-                    'INTER_CUBIC': cv2.INTER_CUBIC,
-                    'INTER_AREA': cv2.INTER_AREA,
-                    'INTER_LANCZOS4': cv2.INTER_LANCZOS4,
-                }
-                
-                if interp_method in name_to_code:
-                    interp_code = name_to_code[interp_method]
-            
-            lr_up = cv2.resize(
-                lr_img, (hr_w, hr_h), interpolation=interp_code
-            )
+                if isinstance(interp_method, str):
+                    name_to_code = {
+                        'INTER_LINEAR': cv2.INTER_LINEAR,
+                        'INTER_CUBIC': cv2.INTER_CUBIC,
+                        'INTER_AREA': cv2.INTER_AREA,
+                        'INTER_LANCZOS4': cv2.INTER_LANCZOS4,
+                    }
+                    interp_code = name_to_code.get(interp_method, cv2.INTER_CUBIC)
+                elif isinstance(interp_method, int):
+                    interp_code = interp_method
+
+            lr_up = cv2.resize(lr_img, (hr_w, hr_h), interpolation=interp_code)
+            lr_up = np.clip(lr_up, 0.0, 1.0)
 
             # Add padding to ensure full coverage
             hr_proc = add_padding(hr_img, patch_size, stride)
             lr_proc = add_padding(lr_up, patch_size, stride)
 
-            for i in range(0, hr_h - patch_size + 1, stride):
-                for j in range(0, hr_w - patch_size + 1, stride):
+            # IMPORTANT: iterate over padded shapes, not original hr_h/hr_w
+            H, W = hr_proc.shape[:2]
+            for i in range(0, H - patch_size + 1, stride):
+                for j in range(0, W - patch_size + 1, stride):
                     hr_patch = hr_proc[i:i+patch_size, j:j+patch_size, :]
                     lr_patch = lr_proc[i:i+patch_size, j:j+patch_size, :]
 
+                    hr_patch = np.clip(hr_patch, 0.0, 1.0)
+                    lr_patch = np.clip(lr_patch, 0.0, 1.0)
+
                     X.append(lr_patch)
                     Y.append(hr_patch)
-        else: # mode == 'scale'
+
+        else:  # mode == 'scale'
             patch_size_hr = patch_size * scale_factor
 
             # Add padding to ensure full coverage
             hr_proc = add_padding(hr_img, patch_size_hr, stride)
             lr_proc = add_padding(lr_img, patch_size, stride)
 
-            for i in range(0, lr_h - patch_size + 1, stride):
-                for j in range(0, lr_w - patch_size + 1, stride):
-                    # Extract LR patch
-                    lr_patch = lr_proc[i:i+patch_size, j:j+patch_size]
+            # Iterate over padded LR, then index into padded HR
+            lrH, lrW = lr_proc.shape[:2]
+            for i in range(0, lrH - patch_size + 1, stride):
+                for j in range(0, lrW - patch_size + 1, stride):
+                    lr_patch = lr_proc[i:i+patch_size, j:j+patch_size, :]
 
-                    # Extract corresponding HR patch
                     hr_i = i * scale_factor
                     hr_j = j * scale_factor
+                    hr_patch = hr_proc[hr_i:hr_i+patch_size_hr, hr_j:hr_j+patch_size_hr, :]
 
-                    if ((hr_i + patch_size_hr <= hr_h)
-                        and (hr_j + patch_size_hr <= hr_w)):
-                        hr_patch = hr_proc[
-                            hr_i:hr_i + patch_size_hr,
-                            hr_j:hr_j + patch_size_hr,
-                        ]
-
-                        if (lr_patch.shape[:2] == (patch_size, patch_size)
-                            and hr_patch.shape[:2]
-                                == (patch_size_hr, patch_size_hr)):
-                            X.append(lr_patch)
-                            Y.append(hr_patch)
+                    # Shapes should already match thanks to padding; keep a guard
+                    if (lr_patch.shape[:2] == (patch_size, patch_size)
+                        and hr_patch.shape[:2] == (patch_size_hr, patch_size_hr)):
+                        X.append(lr_patch)
+                        Y.append(hr_patch)
 
     X_arr = np.array(X)
     Y_arr = np.array(Y)
