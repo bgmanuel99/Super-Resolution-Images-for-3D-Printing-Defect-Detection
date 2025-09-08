@@ -70,6 +70,15 @@ class SelfAttention(Layer):
         x = Add()([x, o])
         
         return x
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({"channels": self.channels})
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 class ESRGAN:
     """
@@ -133,8 +142,13 @@ class ESRGAN:
                 raise FileNotFoundError(f"Discriminator pretrained path does not exist: {discriminator_pretrained_path}")
             
             # Load pretrained models
-            self.generator = load_model(generator_pretrained_path)
-            self.discriminator = load_model(discriminator_pretrained_path)
+            self.generator = load_model(generator_pretrained_path, custom_objects={
+                "SelfAttention": SelfAttention,
+                "SpectralNormalization": SpectralNormalization,
+            })
+            self.discriminator = load_model(discriminator_pretrained_path, custom_objects={
+                "SpectralNormalization": SpectralNormalization,
+            })
             self.vgg_model = self._build_vgg_model(output_shape)
             
             self.trained = True

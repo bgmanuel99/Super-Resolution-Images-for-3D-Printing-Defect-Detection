@@ -5,16 +5,13 @@ import datetime
 from keras import Model
 from keras.regularizers import l2
 from keras.optimizers import Adam
-from keras.applications import VGG16
 from keras.models import load_model
+from keras.applications import VGG16
+from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.layers import (
     BatchNormalization, Dense, Dropout, GlobalAveragePooling2D, Input
 )
-
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
-
-from SRModels.data_augmentation import AdvancedAugmentGenerator
 
 class FineTunedVGG16:
     def __init__(self):
@@ -120,8 +117,10 @@ class FineTunedVGG16:
             batch_size=32,
             epochs=50,
             use_augmentation=True,
-            use_mix=True,
-            augment_validation=False):
+            augment_validation=False,
+            rescale=None,
+            preprocessing_function=None,
+            datagen_args=None):
         if self.model is None:
             raise ValueError("Model is not built yet.")
 
@@ -135,40 +134,47 @@ class FineTunedVGG16:
             )
         ]
 
-        if use_augmentation:
-            train_gen = AdvancedAugmentGenerator(
-                X_train, y_train, batch_size=batch_size,
-                shuffle=True, use_mix=use_mix
-            )
-            if augment_validation:
-                val_gen = AdvancedAugmentGenerator(
-                    X_val, y_val, batch_size=batch_size,
-                    shuffle=False, use_mix=use_mix
-                )
-                self.model.fit(
-                    train_gen,
-                    steps_per_epoch=len(train_gen),
-                    epochs=epochs,
-                    validation_data=val_gen,
-                    validation_steps=len(val_gen),
-                    callbacks=callbacks
-                )
-            else:
-                self.model.fit(
-                    train_gen,
-                    steps_per_epoch=len(train_gen),
-                    epochs=epochs,
-                    validation_data=(X_val, y_val),
-                    callbacks=callbacks
-                )
-        else:
-            self.model.fit(
-                X_train, y_train,
-                batch_size=batch_size,
-                epochs=epochs,
-                validation_data=(X_val, y_val),
-                callbacks=callbacks
-            )
+        # Build ImageDataGenerators for training and validation
+        if datagen_args is None:
+            datagen_args = {
+                "rotation_range": 15 if use_augmentation else 0,
+                "width_shift_range": 0.05 if use_augmentation else 0.0,
+                "height_shift_range": 0.05 if use_augmentation else 0.0,
+                "zoom_range": 0.1 if use_augmentation else 0.0,
+                "shear_range": 0.05 if use_augmentation else 0.0,
+                "horizontal_flip": True if use_augmentation else False,
+                "vertical_flip": False,
+                "fill_mode": "nearest",
+            }
+
+        train_datagen = ImageDataGenerator(
+            rescale=rescale,
+            preprocessing_function=preprocessing_function,
+            **datagen_args
+        )
+
+        # Validation should generally not be augmented
+        val_datagen = ImageDataGenerator(
+            rescale=rescale,
+            preprocessing_function=preprocessing_function,
+            **(datagen_args if augment_validation else {})
+        )
+
+        train_gen = train_datagen.flow(
+            X_train, y_train, batch_size=batch_size, shuffle=True
+        )
+        val_gen = val_datagen.flow(
+            X_val, y_val, batch_size=batch_size, shuffle=False
+        )
+
+        self.model.fit(
+            train_gen,
+            epochs=epochs,
+            validation_data=val_gen,
+            callbacks=callbacks,
+            steps_per_epoch=len(train_gen),
+            validation_steps=len(val_gen)
+        )
             
         self.trained = True
 
