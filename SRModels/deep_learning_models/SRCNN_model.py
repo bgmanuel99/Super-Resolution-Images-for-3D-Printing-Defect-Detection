@@ -24,7 +24,6 @@ class SRCNNModel:
             self, 
             input_shape=None, 
             learning_rate=1e-4, 
-            loss="mean_squared_error", 
             from_pretrained=False, 
             pretrained_path=None):
         """Sets up the model: either loads pretrained or builds + compiles a new model."""
@@ -41,7 +40,7 @@ class SRCNNModel:
                 raise ValueError("input_shape must be provided when not using a pretrained model.")
             
             self._build_model(input_shape)
-            self._compile_model(learning_rate, loss)
+            self._compile_model(learning_rate)
 
     def _build_model(self, input_shape):
         """Builds the SRCNN model using Sequential API."""
@@ -56,7 +55,7 @@ class SRCNNModel:
     def _charbonnier_loss(self, y_true, y_pred, eps=1e-3):
         return tf.reduce_mean(tf.sqrt(tf.square(y_pred - y_true) + eps**2))
 
-    def _compile_model(self, learning_rate, loss):
+    def _compile_model(self, learning_rate):
         """Compiles the model."""
         
         optimizer = Adam(learning_rate=learning_rate)
@@ -70,8 +69,7 @@ class SRCNNModel:
             X_val,
             Y_val,
             batch_size=16,
-            epochs=50,
-            use_augmentation=True):
+            epochs=50):
         """Trains the model with optional data augmentation and callbacks."""
         
         if self.model is None:
@@ -84,43 +82,23 @@ class SRCNNModel:
             print("Training on CPU")
         
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-7, verbose=1),
+            EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-7, verbose=1),
             EpochTimeCallback(),
             EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]
 
-        if use_augmentation:
-            train_datagen = ImageDataGenerator(
-                rotation_range=15,
-                width_shift_range=0.05,
-                height_shift_range=0.05,
-                zoom_range=0.1,
-                shear_range=0.05,
-                horizontal_flip=True,
-                fill_mode="nearest"
-            )
-            train_gen = train_datagen.flow(X_train, Y_train, batch_size=batch_size, shuffle=True)
-            
-            self.model.fit(
-                train_gen,
-                steps_per_epoch=len(train_gen),
-                epochs=epochs,
-                validation_data=(X_val, Y_val),
-                callbacks=callbacks
-            )
-        else:
-            self.model.fit(
-                X_train, Y_train,
-                batch_size=batch_size,
-                epochs=epochs,
-                validation_data=(X_val, Y_val),
-                callbacks=callbacks
-            )
+        history = self.model.fit(
+            X_train, Y_train,
+            batch_size=batch_size,
+            epochs=epochs,
+            validation_data=(X_val, Y_val),
+            callbacks=callbacks
+        )
 
         self._trained = True
         
-        return callbacks[2], callbacks[3]  # Return time and memory callbacks
+        return history, callbacks[2], callbacks[3]
 
     def evaluate(self, X_test, Y_test):
         """Evaluates the model."""
