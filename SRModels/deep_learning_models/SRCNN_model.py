@@ -52,14 +52,11 @@ class SRCNNModel:
             Conv2D(3, (5, 5), activation="linear", padding="same")
         ])
 
-    def _charbonnier_loss(self, y_true, y_pred, eps=1e-3):
-        return tf.reduce_mean(tf.sqrt(tf.square(y_pred - y_true) + eps**2))
-
     def _compile_model(self, learning_rate):
         """Compiles the model."""
         
         optimizer = Adam(learning_rate=learning_rate)
-        self.model.compile(optimizer=optimizer, loss=self._charbonnier_loss, metrics=[psnr, ssim])
+        self.model.compile(optimizer=optimizer, loss="mean_squared_error", metrics=[psnr, ssim])
         self.model.summary()
 
     def fit(

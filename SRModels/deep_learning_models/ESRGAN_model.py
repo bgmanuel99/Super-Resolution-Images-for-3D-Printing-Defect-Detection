@@ -17,7 +17,6 @@ from keras.layers import (
     Lambda, 
     Concatenate, 
     LeakyReLU, 
-    BatchNormalization, 
     GlobalAveragePooling2D, 
     Dense, 
     Layer
@@ -359,18 +358,17 @@ class ESRGAN:
         x = SpectralNormalization(Conv2D(64, 3, padding="same", name="disc_conv1"))(inputs)
         x = LeakyReLU(alpha=0.2, name="disc_leaky1")(x)
         
-        # Convolutional blocks
-        filters = [64, 128, 128, 256, 256, 512, 512]
-        strides = [2, 1, 2, 1, 2, 1, 2]
-        
+        # Convolutional blocks (reduced depth and channels to lower parameter count)
+        filters = [64, 64, 128, 128, 256]
+        strides = [2, 1, 2, 1, 2]
+
         for i, (f, s) in enumerate(zip(filters, strides)):
             x = SpectralNormalization(Conv2D(f, 3, strides=s, padding="same", name=f"disc_conv{i+2}"))(x)
-            x = BatchNormalization(name=f"disc_bn{i+2}")(x)
             x = LeakyReLU(alpha=0.2, name=f"disc_leaky{i+2}")(x)
         
         # Global average pooling and dense layers
         x = GlobalAveragePooling2D(name="disc_gap")(x)
-        x = SpectralNormalization(Dense(1024, name="disc_dense1"))(x)
+        x = SpectralNormalization(Dense(256, name="disc_dense1"))(x)
         x = LeakyReLU(alpha=0.2, name="disc_leaky_dense1")(x)
         outputs = SpectralNormalization(Dense(1, activation="sigmoid", name="disc_output"))(x)
         
@@ -692,7 +690,6 @@ class ESRGAN:
             if memory_tracker is not None:
                 memory_tracker.begin_epoch()
             
-            # Métricas acumuladas
             epoch_losses = {
                 "g_loss": [],
                 "val_g_loss": [],
@@ -705,15 +702,14 @@ class ESRGAN:
                 "d_lr": []
             }
 
-            # Iteración sobre batches
+            # Iterate over training batches
             for step, (lr_batch, hr_batch) in enumerate(train_dataset.take(steps_per_epoch)):
                 losses = self._train_step(lr_batch, hr_batch)
                 for key, value in losses.items():
-                    # Solo registrar las métricas seleccionadas en epoch_losses
                     if key in epoch_losses:
                         epoch_losses[key].append(float(value.numpy()))
 
-                # Métricas perceptuales en [0,1]
+                # Perceptual metrics every 10 steps
                 hr_fake = self.generator(lr_batch, training=False)
                 hr_real_eval = (hr_batch + 1.0) / 2.0
                 hr_gen_eval = (hr_fake + 1.0) / 2.0

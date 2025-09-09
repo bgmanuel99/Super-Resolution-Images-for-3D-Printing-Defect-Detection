@@ -123,9 +123,6 @@ class EDSR:
         outputs = Lambda(lambda t: tf.clip_by_value(t, 0.0, 1.0), name="clip_0_1")(x)
         
         self.model = Model(inputs, outputs, name="EDSR")
-        
-    def _charbonnier_loss(self, y_true, y_pred, eps=1e-3):
-        return tf.reduce_mean(tf.sqrt(tf.square(y_pred - y_true) + eps**2))
 
     def _compile_model(self, learning_rate, loss):
         """Compile the model with Adam optimizer and specified loss, including PSNR and SSIM metrics."""
@@ -137,7 +134,7 @@ class EDSR:
             epsilon=1e-8, 
             clipnorm=1.0
         )
-        self.model.compile(optimizer=optimizer, loss=self._charbonnier_loss, metrics=[psnr, ssim])
+        self.model.compile(optimizer=optimizer, loss="mean_squared_error", metrics=[psnr, ssim])
         self.model.summary()
 
     def fit(
