@@ -531,13 +531,7 @@ class ESRGAN:
         
         return {
             "g_loss": g_loss, 
-            "g_adversarial_loss": g_adversarial_loss, 
-            "g_perceptual_loss": g_perceptual_loss, 
-            "g_pixel_loss": g_pixel_loss, 
-            "g_spectral_loss": g_spectral_loss, 
             "d_loss": d_loss, 
-            "d_loss_real": d_loss_real, 
-            "d_loss_fake": d_loss_fake
         }
     
     def fit(
@@ -701,24 +695,23 @@ class ESRGAN:
             # Métricas acumuladas
             epoch_losses = {
                 "g_loss": [],
-                "g_adversarial_loss": [],
-                "g_perceptual_loss": [],
-                "g_pixel_loss": [],
-                "g_spectral_loss": [], 
-                "g_lr": [], 
+                "val_g_loss": [],
                 "d_loss": [],
-                "d_loss_real": [],
-                "d_loss_fake": [], 
-                "d_lr": [], 
-                "psnr": [], 
-                "ssim": []
+                "psnr": [],
+                "val_psnr": [],
+                "ssim": [], 
+                "val_ssim": [],
+                "g_lr": [],
+                "d_lr": []
             }
 
             # Iteración sobre batches
             for step, (lr_batch, hr_batch) in enumerate(train_dataset.take(steps_per_epoch)):
                 losses = self._train_step(lr_batch, hr_batch)
                 for key, value in losses.items():
-                    epoch_losses[key].append(float(value.numpy()))
+                    # Solo registrar las métricas seleccionadas en epoch_losses
+                    if key in epoch_losses:
+                        epoch_losses[key].append(float(value.numpy()))
 
                 # Métricas perceptuales en [0,1]
                 hr_fake = self.generator(lr_batch, training=False)
@@ -745,14 +738,37 @@ class ESRGAN:
 
             # Validación si existe
             if val_data_struct is not None:
-                val_psnr, val_ssim = [], []
+                val_psnr, val_ssim, val_g_losses = [], [], []
                 for i, (lr_v, hr_v) in enumerate(val_data_struct.take(val_steps)):
+                    # Forward pass
                     hr_fake_v = self.generator(lr_v, training=False)
+
+                    # Compute generator validation loss (same formula as training, no grads)
+                    d_fake_v = self.discriminator(hr_fake_v, training=False)
+                    g_adv_v = self._adversarial_loss(tf.ones_like(d_fake_v), d_fake_v)
+                    g_perc_v = self._perceptual_loss(hr_v, hr_fake_v)
+                    g_pix_v  = self._pixel_loss(hr_v, hr_fake_v)
+                    g_spec_v = self._spectral_loss(hr_v, hr_fake_v)
+                    g_loss_v = g_adv_v + 1.0 * g_perc_v + 100.0 * g_pix_v + 1.0 * g_spec_v
+                    val_g_losses.append(float(g_loss_v.numpy()))
+
+                    # PSNR / SSIM in [0,1]
                     hr_real_eval = (hr_v + 1.0) / 2.0
                     hr_gen_eval  = (hr_fake_v + 1.0) / 2.0
                     val_psnr.append(float(tf.reduce_mean(tf.image.psnr(hr_real_eval, hr_gen_eval, 1.0)).numpy()))
                     val_ssim.append(float(tf.reduce_mean(tf.image.ssim(hr_real_eval, hr_gen_eval, 1.0)).numpy()))
-                print(f"  Validation -> PSNR: {np.mean(val_psnr):.2f}, SSIM: {np.mean(val_ssim):.4f}")
+
+                val_psnr_mean = float(np.mean(val_psnr)) if len(val_psnr) > 0 else float('nan')
+                val_ssim_mean = float(np.mean(val_ssim)) if len(val_ssim) > 0 else float('nan')
+                val_g_loss_mean = float(np.mean(val_g_losses)) if len(val_g_losses) > 0 else float('nan')
+
+                # Registrar en epoch_losses
+                epoch_losses["val_psnr"] = val_psnr_mean
+                epoch_losses["val_ssim"] = val_ssim_mean
+                epoch_losses["val_g_loss"] = val_g_loss_mean
+
+                print(
+                    f"  Validation -> PSNR: {val_psnr_mean:.2f}, SSIM: {val_ssim_mean:.4f}, G_loss: {val_g_loss_mean:.4f}")
 
             # Guardar previsualización (grid 5x5) al final de cada época
             _save_sr_grid(epoch + 1)
@@ -770,70 +786,77 @@ class ESRGAN:
     def evaluate(self, test_dataset):
         """
         Evaluate the trained model with a test dataset.
-        
+
+        Computes avg_g_loss (using the same generator loss formula as training)
+        and reports PSNR/SSIM averages. Pixel and perceptual losses are not
+        returned as separate metrics in evaluation.
+
         Args:
             test_dataset: Test dataset (tf.data.Dataset)
-            
+
         Returns:
-            Dictionary containing evaluation metrics
+            dict: {"avg_psnr", "avg_ssim", "avg_g_loss"}
         """
-        
+
         if not self.trained:
             raise RuntimeError("Model has not been trained.")
-        
+
         print("Evaluating model on test dataset...")
-        
+
         # Initialize metrics
         total_psnr = 0.0
         total_ssim = 0.0
-        total_pixel_loss = 0.0
-        total_perceptual_loss = 0.0
+        total_g_loss = 0.0
         num_batches = 0
-        
+
         for lr_batch, hr_batch in test_dataset:
             # Generate high-resolution images
             hr_generated = self.generator(lr_batch, training=False)
-            
-            # Pixel loss
-            pixel_loss = self._pixel_loss(hr_batch, hr_generated)
-            total_pixel_loss += eval(pixel_loss)
-            
-            # Perceptual loss
-            perceptual_loss = self._perceptual_loss(hr_batch, hr_generated)
-            total_perceptual_loss += eval(perceptual_loss)
-            
+
+            # Compute generator loss components (match training formula)
+            d_fake = self.discriminator(hr_generated, training=False)
+            g_adversarial_loss = self._adversarial_loss(tf.ones_like(d_fake), d_fake)
+            g_perceptual_loss = self._perceptual_loss(hr_batch, hr_generated)
+            g_pixel_loss = self._pixel_loss(hr_batch, hr_generated)
+            g_spectral_loss = self._spectral_loss(hr_batch, hr_generated)
+
+            g_loss = (
+                g_adversarial_loss
+                + 1.0 * g_perceptual_loss
+                + 100.0 * g_pixel_loss
+                + 1.0 * g_spectral_loss
+            )
+            total_g_loss += eval(g_loss)
+
             # Convert to [0, 1] range for PSNR and SSIM
             hr_real_eval = (hr_batch + 1.0) / 2.0
             hr_gen_eval = (hr_generated + 1.0) / 2.0
-            
+
             # Calculate PSNR and SSIM
             psnr_score = tf.image.psnr(hr_real_eval, hr_gen_eval, max_val=1.0)
             ssim_score = tf.image.ssim(hr_real_eval, hr_gen_eval, max_val=1.0)
-            
+
             total_psnr += eval(mean(psnr_score))
             total_ssim += eval(mean(ssim_score))
-            
+
             num_batches += 1
-        
+
         # Calculate averages
         avg_psnr = total_psnr / num_batches
         avg_ssim = total_ssim / num_batches
-        avg_pixel_loss = total_pixel_loss / num_batches
-        avg_perceptual_loss = total_perceptual_loss / num_batches
-        
+        avg_g_loss = total_g_loss / num_batches
+
         metrics = {
             "avg_psnr": avg_psnr,
             "avg_ssim": avg_ssim,
-            "avg_pixel_loss": avg_pixel_loss,
-            "avg_perceptual_loss": avg_perceptual_loss
+            "avg_g_loss": avg_g_loss,
         }
-        
-        print(f"Evaluation Results:")
+
+        print("Evaluation Results:")
         print(f"  Average PSNR: {avg_psnr:.4f}")
         print(f"  Average SSIM: {avg_ssim:.4f}")
-        print(f"  Average Pixel Loss: {avg_pixel_loss:.4f}")
-        print(f"  Average Perceptual Loss: {avg_perceptual_loss:.4f}")
-        
+        print(f"  Average G Loss: {avg_g_loss:.4f}")
+
         return metrics
     
     def super_resolve_image(self, lr_img, patch_size_lr=48, stride=24, batch_size=16):
