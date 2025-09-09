@@ -227,16 +227,29 @@ def plot_confusion(ax, cm, classes, title):
                 color="white" if cm[i, j] > thresh else "black")
     return im
 
-def plot_2x2(images, titles=None, cmap='gray'):
-    if len(images) != 4:
-        raise ValueError("Debes pasar exactamente 4 imágenes.")
+def plot_4x3(images, titles=None, cmap='gray'):
+    """
+    Plot a 4x3 panel (4 rows x 3 columns).
+    - If fewer than 12 images are provided, remaining cells are left blank.
+    - Titles are applied when provided (matched by index).
+    """
+    
+    if not isinstance(images, (list, tuple)):
+        raise ValueError("'images' debe ser una lista o tupla de imágenes (np.ndarray).")
 
-    fig, axes = plt.subplots(2, 2, figsize=(8, 8))
+    rows, cols = 4, 3
+    total = rows * cols
 
-    for i, ax in enumerate(axes.flat):
-        ax.imshow(images[i], cmap=cmap)
-        if titles and len(titles) == 4:
-            ax.set_title(titles[i])
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 4))
+    axes = axes.flatten()
+
+    n = len(images)
+    for i in range(total):
+        ax = axes[i]
+        if i < n:
+            ax.imshow(images[i], cmap=cmap)
+            if titles is not None and i < len(titles):
+                ax.set_title(titles[i])
         ax.axis("off")
 
     plt.tight_layout()

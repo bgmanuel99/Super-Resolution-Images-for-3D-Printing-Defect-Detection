@@ -286,72 +286,101 @@ def load_defects_dataset_as_patches(
 
 
 def load_predictions_dataset(
-    lr_root,
-    class_map_path):
+    lr_root: str,
+    hr_root: str,
+    class_map_path: str):
     """
-    Load a predictions dataset of full LR images (no patching).
+    Load a predictions dataset of full LR/HR aligned image pairs (no patching).
 
     Behavior:
-      - Recursively discovers all images under `lr_root` using `get_all_image_paths`.
-      - Normalizes images to float32 in [0,1], RGB order.
+      - Recursively discovers all images under `lr_root` and `hr_root` using `get_all_image_paths`.
+      - Matches images by basename (e.g., sample_001.png) present in both roots.
+      - Normalizes LR and HR images to float32 in [0,1], RGB order.
       - Associates a class label per image using a provided pickle mapping
         of { basename.png: class_id }.
-            - Returns numpy arrays X, y. Assumes images share the same spatial size to
-                allow stacking without padding.
+      - Returns numpy arrays X_LR, X_HR, y. Assumes images within each split (LR and HR)
+        share the same spatial size respectively to allow stacking without padding.
 
     Parameters
     ----------
     lr_root : str
         Root folder containing LR images in any subfolder structure.
+    hr_root : str
+        Root folder containing HR images in any subfolder structure.
     class_map_path : str
-        Path to a pickle file containing a dict mapping LR basenames to class ids.
+        Path to a pickle file containing a dict mapping basenames to class ids.
 
     Returns
     -------
-    X : np.ndarray
-        Array of LR images as float32 in [0,1], shape (N, H, W, 3). H and W are the
-        maximum height/width among images after optional padding.
+    X_LR : np.ndarray
+        Array of LR images as float32 in [0,1], shape (N, H_lr, W_lr, 3).
+    X_HR : np.ndarray
+        Array of HR images as float32 in [0,1], shape (N, H_hr, W_hr, 3).
     y : np.ndarray
         Array of class ids (N,) as integers.
     """
 
+    # Validate inputs
     if not lr_root or not isinstance(lr_root, str) or not os.path.exists(lr_root):
         raise ValueError("lr_root must be an existing directory path.")
     if not os.path.isdir(lr_root):
         raise ValueError("lr_root must be a directory.")
+    if not hr_root or not isinstance(hr_root, str) or not os.path.exists(hr_root):
+        raise ValueError("hr_root must be an existing directory path.")
+    if not os.path.isdir(hr_root):
+        raise ValueError("hr_root must be a directory.")
     if not class_map_path or not isinstance(class_map_path, str):
         raise ValueError("class_map_path must be a non-empty string.")
     if not os.path.exists(class_map_path):
         raise FileNotFoundError(f"Class labels map not found: {class_map_path}")
 
+    # Discover files
     lr_paths = get_all_image_paths(lr_root)
+    hr_paths = get_all_image_paths(hr_root)
     if not lr_paths:
         raise ValueError("No images found under LR root directory.")
+    if not hr_paths:
+        raise ValueError("No images found under HR root directory.")
 
+    # Load labels map
     with open(class_map_path, 'rb') as f:
         class_labels_map = pickle.load(f)
     if not isinstance(class_labels_map, dict):
         raise ValueError("class_labels_map pickle must contain a dict of {basename: class_id}.")
 
-    X = []
-    y = []
+    # Build lookup by basename
+    lr_dict = {os.path.basename(p): p for p in lr_paths}
+    hr_dict = {os.path.basename(p): p for p in hr_paths}
+    common = sorted(set(lr_dict.keys()) & set(hr_dict.keys()))
+    if not common:
+        raise ValueError("No matching basenames found between LR and HR roots.")
 
-    for img_path in lr_paths:
-        img_bgr = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        if img_bgr is None:
-            raise ValueError(f"Failed to read image: {img_path}")
+    X_LR, X_HR, y = [], [], []
 
-        img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    for base in common:
+        lr_path = lr_dict[base]
+        hr_path = hr_dict[base]
 
-        base = os.path.basename(img_path)
+        lr_bgr = cv2.imread(lr_path, cv2.IMREAD_COLOR)
+        hr_bgr = cv2.imread(hr_path, cv2.IMREAD_COLOR)
+        if lr_bgr is None:
+            raise ValueError(f"Failed to read LR image: {lr_path}")
+        if hr_bgr is None:
+            raise ValueError(f"Failed to read HR image: {hr_path}")
+
+        lr_img = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        hr_img = cv2.cvtColor(hr_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
         if base not in class_labels_map:
-            raise KeyError(f"Missing class id for LR basename in class_labels_map: {base}")
+            raise KeyError(f"Missing class id for basename in class_labels_map: {base}")
         class_id = int(class_labels_map[base])
 
-        X.append(img)
+        X_LR.append(lr_img)
+        X_HR.append(hr_img)
         y.append(class_id)
 
-    X = np.array(X, dtype=np.float32)
+    X_LR = np.array(X_LR, dtype=np.float32)
+    X_HR = np.array(X_HR, dtype=np.float32)
     y = np.array(y, dtype=np.int64)
 
-    return X, y
+    return X_LR, X_HR, y
