@@ -10,21 +10,14 @@ from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from keras.layers import (
     Add, 
     Input, 
-    Dense, 
     Conv2D, 
     Lambda, 
-    Reshape, 
-    Multiply, 
-    Activation, 
-    Concatenate, 
-    GlobalAveragePooling2D, 
-    GlobalMaxPooling2D
+    Activation
 )
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 
 from SRModels.metrics import psnr, ssim
-from keras.preprocessing.image import ImageDataGenerator
 from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
 
 class EDSR:
@@ -58,41 +51,6 @@ class EDSR:
         else:
             self._build_model(scale_factor, channels, num_res_blocks, num_filters, res_scaling)
             self._compile_model(learning_rate, loss)
-            
-    def _channel_attention(self, x, reduction=16):
-        """Channel Attention Module (Squeeze-and-Excitation style)."""
-        
-        channel = x.shape[-1]
-        
-        avg_pool = GlobalAveragePooling2D()(x)
-        max_pool = GlobalMaxPooling2D()(x)
-        
-        shared_dense_one = Dense(channel // reduction, activation='relu', kernel_initializer='he_normal', use_bias=True)
-        shared_dense_two = Dense(channel, activation='sigmoid', kernel_initializer='he_normal', use_bias=True)
-        
-        avg_out = shared_dense_one(avg_pool)
-        avg_out = shared_dense_two(avg_out)
-        
-        max_out = shared_dense_one(max_pool)
-        max_out = shared_dense_two(max_out)
-        
-        scale = Add()([avg_out, max_out])
-        scale = Activation('sigmoid')(scale)
-        scale = Reshape((1, 1, channel))(scale)
-        
-        return Multiply()([x, scale])
-
-    def _spatial_attention(self, x):
-        """Spatial Attention Module."""
-        
-        avg_pool = tf.reduce_mean(x, axis=-1, keepdims=True)
-        max_pool = tf.reduce_max(x, axis=-1, keepdims=True)
-        
-        concat = Concatenate(axis=-1)([avg_pool, max_pool])
-        
-        sa = Conv2D(1, kernel_size=7, padding='same', activation='sigmoid', kernel_initializer='he_normal')(concat)
-        
-        return Multiply()([x, sa])
     
     def _residual_block(self, x, num_filters, res_scaling):
         """Build a residual block without batch normalization (key feature of EDSR)."""
@@ -105,12 +63,6 @@ class EDSR:
         
         # Second conv layer
         x = Conv2D(num_filters, (3, 3), padding="same", kernel_initializer="he_normal")(x)
-        
-        # Channel Attention
-        x = self._channel_attention(x)
-        
-        # Spatial Attention
-        x = self._spatial_attention(x)
         
         # Scale the residual
         if res_scaling != 1.0:
@@ -171,6 +123,9 @@ class EDSR:
         outputs = Lambda(lambda t: tf.clip_by_value(t, 0.0, 1.0), name="clip_0_1")(x)
         
         self.model = Model(inputs, outputs, name="EDSR")
+        
+    def _charbonnier_loss(self, y_true, y_pred, eps=1e-3):
+        return tf.reduce_mean(tf.sqrt(tf.square(y_pred - y_true) + eps**2))
 
     def _compile_model(self, learning_rate, loss):
         """Compile the model with Adam optimizer and specified loss, including PSNR and SSIM metrics."""
@@ -182,7 +137,7 @@ class EDSR:
             epsilon=1e-8, 
             clipnorm=1.0
         )
-        self.model.compile(optimizer=optimizer, loss=loss, metrics=[psnr, ssim])
+        self.model.compile(optimizer=optimizer, loss=self._charbonnier_loss, metrics=[psnr, ssim])
         self.model.summary()
 
     def fit(
@@ -192,8 +147,7 @@ class EDSR:
             X_val, 
             Y_val, 
             batch_size=16, 
-            epochs=300, 
-            use_augmentation=True):
+            epochs=300):
         """Train the model using optional image data augmentation and standard callbacks."""
         
         if self.model is None:
@@ -206,39 +160,19 @@ class EDSR:
             print("Training on CPU")
 
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
+            EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
             ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-7, verbose=1),
             EpochTimeCallback(),
             EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]
-
-        if use_augmentation:
-            train_datagen = ImageDataGenerator(
-                rotation_range=15,
-                width_shift_range=0.05,
-                height_shift_range=0.05,
-                zoom_range=0.1,
-                shear_range=0.05,
-                horizontal_flip=True,
-                fill_mode="nearest"
-            )
-            train_gen = train_datagen.flow(X_train, Y_train, batch_size=batch_size, shuffle=True)
-            
-            self.model.fit(
-                train_gen,
-                steps_per_epoch=len(train_gen),
-                epochs=epochs,
-                validation_data=(X_val, Y_val),
-                callbacks=callbacks
-            )
-        else:
-            self.model.fit(
-                X_train, Y_train,
-                batch_size=batch_size,
-                epochs=epochs,
-                validation_data=(X_val, Y_val),
-                callbacks=callbacks
-            )
+        
+        self.model.fit(
+            X_train, Y_train,
+            batch_size=batch_size,
+            epochs=epochs,
+            validation_data=(X_val, Y_val),
+            callbacks=callbacks
+        )
 
         self.trained = True
         return callbacks[2], callbacks[3]  # Return time and memory callbacks
