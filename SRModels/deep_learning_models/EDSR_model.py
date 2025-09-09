@@ -166,7 +166,7 @@ class EDSR:
             EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]
         
-        self.model.fit(
+        history = self.model.fit(
             X_train, Y_train,
             batch_size=batch_size,
             epochs=epochs,
@@ -175,7 +175,8 @@ class EDSR:
         )
 
         self.trained = True
-        return callbacks[2], callbacks[3]  # Return time and memory callbacks
+        
+        return history, callbacks[2], callbacks[3]
 
     def evaluate(self, X_test, Y_test):
         """Evaluate the model on test data and print loss, PSNR, and SSIM."""

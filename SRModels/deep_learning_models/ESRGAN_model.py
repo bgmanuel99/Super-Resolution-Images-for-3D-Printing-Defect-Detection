@@ -26,7 +26,6 @@ from keras.backend import eval, mean, square, binary_crossentropy
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
 
-from SRModels.data_augmentation import AdvancedAugmentGenerator
 from SRModels.deep_learning_models.callbacks import EpochTimeTracker, EpochMemoryTracker
 
 class SelfAttention(Layer):
@@ -553,32 +552,26 @@ class ESRGAN:
         batch_size=16,
         steps_per_epoch=None,
         val_steps=None,
-        use_augmentation=True,
-        use_mix=True,
-        augment_validation=False,
-        normalize=True
-    ):
+        normalize=True,
+        save_dir=None):
         """
-        Train the ESRGAN model con opción de data augmentation avanzada.
+        Train the ESRGAN model and optionally save a 5x5 SR preview grid each epoch.
 
-        Opciones de entrada:
+        Formas de entrada:
         - Proporcionar (X_train, Y_train) y opcionalmente (X_val, Y_val)
         - O proporcionar directamente un train_dataset (tf.data.Dataset) ya preparado
 
         Parámetros:
         X_train, Y_train: ndarrays en rango [0,1]
         train_dataset: tf.data.Dataset que produce (lr, hr) en [0,1] o [-1,1]
-        steps_per_epoch: obligatorio si la fuente es infinita (repeat / generador)
-        use_augmentation: si True aplica AdvancedAugmentGenerator sobre X_train/Y_train
-        use_mix: controla mixup/cutmix dentro del generador avanzado
-        augment_validation: aplica augment también a validación (no recomendado habitual)
+        steps_per_epoch: obligatorio si la fuente es infinita (repeat)
         normalize: si True convierte batches de [0,1] a [-1,1]
+        save_dir: si se proporciona, guarda al final de cada época una cuadrícula 5x5
+          con salidas del generador para monitorizar el progreso
         """
         # Validaciones básicas
         if train_dataset is None and (X_train is None or Y_train is None):
             raise ValueError("Debe aportar (X_train,Y_train) o un train_dataset")
-        if use_augmentation and (X_train is None or Y_train is None):
-            raise ValueError("Para use_augmentation=True se requieren X_train e Y_train")
 
         # Info dispositivo
         devices = tf.config.list_physical_devices('GPU')
@@ -588,36 +581,21 @@ class ESRGAN:
             print("Training on CPU")
 
         # Construcción del dataset de entrenamiento
-        if use_augmentation:
-            aug_seq = AdvancedAugmentGenerator(
-                X_train, Y_train, batch_size=batch_size,
-                shuffle=True, use_mix=use_mix
+        if train_dataset is None:
+            # Dataset desde arrays
+            train_dataset = (
+                tf.data.Dataset
+                .from_tensor_slices((X_train, Y_train))
+                .shuffle(len(X_train))
+                .batch(batch_size)
+                .repeat()
             )
-            
-            output_signature = (
-                tf.TensorSpec(shape=(None,)+X_train.shape[1:], dtype=tf.float32),
-                tf.TensorSpec(shape=(None,)+Y_train.shape[1:], dtype=tf.float32)
-            )
-            
-            def gen_epoch():
-                for i in range(len(aug_seq)):
-                    yield aug_seq[i]
-
-            train_dataset = tf.data.Dataset.from_generator(
-                gen_epoch,
-                output_signature=output_signature
-            ).repeat()
-            
-            if steps_per_epoch is None:
-                steps_per_epoch = len(aug_seq)
-        elif train_dataset is None:
-            # Dataset simple desde arrays
-            train_dataset = tf.data.Dataset.from_tensor_slices((X_train, Y_train)).shuffle(len(X_train)).batch(batch_size).repeat()
             if steps_per_epoch is None:
                 steps_per_epoch = int(np.ceil(len(X_train)/batch_size))
         else:
-            # Se proporcionó un dataset externo. Aseguramos batching y repetición si no las trae.
-            # (Heurística simple: si no tiene _variant_tensor_attr asumimos que necesita repeat)
+            # Dataset externo: debe proveer batching o lo añadimos si no.
+            # Para mantener consistencia, forzamos repeat() aquí.
+            # No alteramos estructura si ya está batched (supuesto del usuario).
             train_dataset = train_dataset.repeat()
             if steps_per_epoch is None:
                 raise ValueError("Debe indicar steps_per_epoch cuando aporta un dataset externo")
@@ -632,34 +610,80 @@ class ESRGAN:
         if val_dataset is not None:
             val_data_struct = val_dataset
         elif X_val is not None and Y_val is not None:
-            if augment_validation and use_augmentation:
-                val_seq = AdvancedAugmentGenerator(
-                    X_val, Y_val, batch_size=batch_size,
-                    shuffle=False, use_mix=False
-                )
-                
-                output_signature_val = (
-                    tf.TensorSpec(shape=(None,)+X_val.shape[1:], dtype=tf.float32),
-                    tf.TensorSpec(shape=(None,)+Y_val.shape[1:], dtype=tf.float32)
-                )
-                def gen_val_batches():
-                    for i in range(len(val_seq)):
-                        yield val_seq[i]
-                
-                val_data_struct = tf.data.Dataset.from_generator(
-                    gen_val_batches,
-                    output_signature=output_signature_val
-                )
-                
-                if val_steps is None:
-                    val_steps = len(val_seq)
-            else:
-                val_data_struct = tf.data.Dataset.from_tensor_slices((X_val, Y_val)).batch(batch_size)
-                if val_steps is None:
-                    val_steps = int(np.ceil(len(X_val)/batch_size))
+            val_data_struct = tf.data.Dataset.from_tensor_slices((X_val, Y_val)).batch(batch_size)
+            if val_steps is None:
+                val_steps = int(np.ceil(len(X_val)/batch_size))
         
         if val_data_struct is not None and normalize:
             val_data_struct = val_data_struct.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
+
+        # Preparación de guardado de previews
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+
+        # Cache para un batch fijo de previsualización (consistente entre épocas)
+        preview_lr_cache = None
+        preview_cache_is_normalized = False  # True si proviene del dataset ya en [-1,1]
+
+        def _prepare_preview_batch():
+            nonlocal preview_lr_cache, preview_cache_is_normalized
+            if preview_lr_cache is not None:
+                return preview_lr_cache, preview_cache_is_normalized
+
+            n_max = 25
+            batch = None
+            is_norm = False
+            
+            if X_val is not None and len(X_val) > 0:
+                batch = X_val[:min(n_max, len(X_val))]
+                is_norm = False
+            elif X_train is not None and len(X_train) > 0:
+                batch = X_train[:min(n_max, len(X_train))]
+                is_norm = False
+            else:
+                src = val_data_struct if val_data_struct is not None else train_dataset
+                for lr_b, _ in src.take(1):
+                    lr_np = lr_b.numpy()
+                    batch = lr_np[:min(n_max, lr_np.shape[0])]
+                    is_norm = True if normalize else False
+                if batch is None:
+                    raise RuntimeError("No se pudo obtener un batch de previsualización para guardar imágenes.")
+
+            preview_lr_cache = batch.astype(np.float32)
+            preview_cache_is_normalized = is_norm
+            return preview_lr_cache, preview_cache_is_normalized
+
+        def _to_uint8(img):
+            img = np.clip(img, 0.0, 1.0)
+            return (img * 255.0).round().astype(np.uint8)
+
+        def _save_sr_grid(epoch_idx):
+            if save_dir is None:
+                return
+            
+            lr_preview, is_norm = _prepare_preview_batch()
+            
+            lr_in = lr_preview if is_norm else (lr_preview * 2.0 - 1.0)
+            
+            sr = self.generator(lr_in, training=False).numpy()
+            
+            sr = (sr + 1.0) / 2.0
+
+            # Construir grid 5x5
+            n = min(25, sr.shape[0])
+            rows, cols = 5, 5
+            h, w, ch = sr.shape[1], sr.shape[2], sr.shape[3]
+            grid = np.zeros((rows * h, cols * w, ch), dtype=np.uint8)
+            for idx in range(n):
+                r = idx // cols
+                cidx = idx % cols
+                tile = _to_uint8(sr[idx])
+                grid[r*h:(r+1)*h, cidx*w:(cidx+1)*w] = tile
+
+            # Guardar PNG
+            png = tf.image.encode_png(grid)
+            out_path = os.path.join(save_dir, f"epoch_{epoch_idx:03d}_sr_grid.png")
+            tf.io.write_file(out_path, png)
 
         # Trackers
         time_tracker = EpochTimeTracker()
@@ -730,6 +754,9 @@ class ESRGAN:
                     val_ssim.append(float(tf.reduce_mean(tf.image.ssim(hr_real_eval, hr_gen_eval, 1.0)).numpy()))
                 print(f"  Validation -> PSNR: {np.mean(val_psnr):.2f}, SSIM: {np.mean(val_ssim):.4f}")
 
+            # Guardar previsualización (grid 5x5) al final de cada época
+            _save_sr_grid(epoch + 1)
+
             self.trained = True
 
             # End-of-epoch tracking
@@ -738,7 +765,7 @@ class ESRGAN:
             if time_tracker is not None:
                 time_tracker.end_epoch()
 
-        return time_tracker, memory_tracker
+        return epoch_losses, time_tracker, memory_tracker
     
     def evaluate(self, test_dataset):
         """

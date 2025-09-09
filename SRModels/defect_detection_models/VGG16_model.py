@@ -116,76 +116,52 @@ class FineTunedVGG16:
             y_val,
             batch_size=32,
             epochs=50,
-            use_augmentation=True,
-            augment_validation=False,
-            rescale=None,
-            preprocessing_function=None,
-            datagen_args=None):
+            use_augmentation=True):
         if self.model is None:
             raise ValueError("Model is not built yet.")
 
         callbacks = [
-            EarlyStopping(
-                monitor="val_loss", patience=8, restore_best_weights=True
-            ),
-            ReduceLROnPlateau(
-                monitor="val_loss", factor=0.5, patience=4,
-                min_lr=1e-7, verbose=1
-            )
+            EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3,min_lr=1e-7, verbose=1)
         ]
 
-        # Build ImageDataGenerators for training and validation
-        if datagen_args is None:
-            datagen_args = {
-                "rotation_range": 15 if use_augmentation else 0,
-                "width_shift_range": 0.05 if use_augmentation else 0.0,
-                "height_shift_range": 0.05 if use_augmentation else 0.0,
-                "zoom_range": 0.1 if use_augmentation else 0.0,
-                "shear_range": 0.05 if use_augmentation else 0.0,
-                "horizontal_flip": True if use_augmentation else False,
-                "vertical_flip": False,
-                "fill_mode": "nearest",
-            }
+        if use_augmentation:
+            datagen = ImageDataGenerator(
+                rotation_range=20,
+                width_shift_range=0.2,
+                height_shift_range=0.2,
+                horizontal_flip=True
+            )
 
-        train_datagen = ImageDataGenerator(
-            rescale=rescale,
-            preprocessing_function=preprocessing_function,
-            **datagen_args
-        )
+            # Assume X_train and y_train are your training data and labels
+            train_generator = datagen.flow(X_train, y_train, batch_size=32)
 
-        # Validation should generally not be augmented
-        val_datagen = ImageDataGenerator(
-            rescale=rescale,
-            preprocessing_function=preprocessing_function,
-            **(datagen_args if augment_validation else {})
-        )
-
-        train_gen = train_datagen.flow(
-            X_train, y_train, batch_size=batch_size, shuffle=True
-        )
-        val_gen = val_datagen.flow(
-            X_val, y_val, batch_size=batch_size, shuffle=False
-        )
-
-        self.model.fit(
-            train_gen,
-            epochs=epochs,
-            validation_data=val_gen,
-            callbacks=callbacks,
-            steps_per_epoch=len(train_gen),
-            validation_steps=len(val_gen)
-        )
+            history = self.model.fit(
+                train_generator,
+                steps_per_epoch=len(train_generator), 
+                epochs=epochs,
+                validation_data=(X_val, y_val),
+                callbacks=callbacks
+            )
+        else:
+            history = self.model.fit(
+                X_train, y_train,
+                batch_size=batch_size,
+                epochs=epochs,
+                validation_data=(X_val, y_val),
+                callbacks=callbacks,
+            )
             
         self.trained = True
+        
+        return history
 
     def evaluate(self, X_test, y_test):
         if not self.trained:
             raise RuntimeError("Model has not been trained.")
         
         results = self.model.evaluate(X_test, y_test)
-        print(
-            f"Loss: {results[0]:.4f}, Accuracy: {results[1]:.4f}"
-        )
+        print(f"Loss: {results[0]:.4f}, Accuracy: {results[1]:.4f}")
         
         return results
 
