@@ -177,6 +177,7 @@ training_checkpoints/
 output/
 *.mp4
 *.png
+*.eps
 *.jpg
 *.h5
 *.csv

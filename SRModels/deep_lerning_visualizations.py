@@ -435,8 +435,16 @@ def plot_4x3(images, titles=None, cmap='gray'):
 
     rows, cols = 4, 3
     total = rows * cols
+    
+    # Define the font properties you want
+    title_font = {
+        'family': 'serif',
+        'color':  'black',
+        'weight': 'bold',
+        'size': 10,
+    }
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 4))
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5))
     axes = axes.flatten()
 
     n = len(images)
@@ -445,13 +453,16 @@ def plot_4x3(images, titles=None, cmap='gray'):
         if i < n:
             ax.imshow(images[i], cmap=cmap)
             if titles is not None and i < len(titles):
-                ax.set_title(titles[i])
+                ax.set_title(titles[i], fontdict=title_font)
         ax.axis("off")
 
     plt.tight_layout()
     plt.show()
     
-def plot_confidence_panel(y, algo_names, label_lists, conf_lists, save_dir='DL_results', filename='sr_confidence_panel.png'):
+def plot_confidence_panel(y, algo_names, label_lists, conf_lists,
+                          save_dir='DL_results',
+                          filename='sr_confidence_panel.png'):
+
     mean_conf_all = []
     mean_conf_correct = []
     mean_conf_wrong = []
@@ -466,6 +477,7 @@ def plot_confidence_panel(y, algo_names, label_lists, conf_lists, save_dir='DL_r
         yp = np.asarray(preds, dtype=int)
         cf = np.asarray(confs, dtype=float)
         n = int(min(len(yt), len(yp), len(cf)))
+
         if n == 0:
             mean_conf_all.append(np.nan)
             mean_conf_correct.append(np.nan)
@@ -475,6 +487,7 @@ def plot_confidence_panel(y, algo_names, label_lists, conf_lists, save_dir='DL_r
             counts_correct.append(0)
             counts_wrong.append(0)
             continue
+
         y_true = yt[:n]
         y_pred = yp[:n]
         cfs = cf[:n]
@@ -482,68 +495,81 @@ def plot_confidence_panel(y, algo_names, label_lists, conf_lists, save_dir='DL_r
         correct = (y_pred == y_true)
         err_rate = 1.0 - float(np.mean(correct))
 
-        mean_all = float(np.nanmean(cfs)) if n > 0 else np.nan
-        mean_corr = float(np.nanmean(cfs[correct])) if np.any(correct) else np.nan
-        mean_wrong = float(np.nanmean(cfs[~correct])) if np.any(~correct) else np.nan
+        mean_conf_all.append(float(np.nanmean(cfs)))
+        mean_conf_correct.append(float(np.nanmean(cfs[correct])) if np.any(correct) else np.nan)
+        mean_conf_wrong.append(float(np.nanmean(cfs[~correct])) if np.any(~correct) else np.nan)
 
-        mean_conf_all.append(mean_all)
-        mean_conf_correct.append(mean_corr)
-        mean_conf_wrong.append(mean_wrong)
         error_rates.append(err_rate)
         counts.append(n)
         counts_correct.append(int(np.sum(correct)))
         counts_wrong.append(int(n - np.sum(correct)))
 
-    # Figura única con 3 subplots apilados
-    fig, axes = plt.subplots(3, 1, figsize=(20, 14), sharex=True)
+    title_font = {
+        'family': 'serif',
+        'color': 'black',
+        'size': 14,
+    }
+
+    # Compact figure suitable for papers
+    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
     idx = np.arange(len(algo_names))
 
-    # Subplot 1: confianza media global
+    # Subplot 1: global mean confidence
     bars1 = axes[0].bar(idx, mean_conf_all, color='tab:blue', alpha=0.85)
-    axes[0].set_ylabel('Confianza media')
-    axes[0].set_title('Confianza media global por algoritmo / método de SR')
-    axes[0].set_ylim(0.0, 1.0)
-    axes[0].grid(axis='y', alpha=0.25)
+    axes[0].set_ylabel('Mean confidence', fontsize=13)
+    axes[0].set_title('Global mean confidence per SR algorithm / method', fontdict=title_font)
+    axes[0].set_ylim(0.7, 0.9)
+    axes[0].grid(False)
+
     for b, m, n in zip(bars1, mean_conf_all, counts):
         if np.isfinite(m):
-            axes[0].text(b.get_x() + b.get_width()/2, m, f'{m:.2f}\n(n={n})', ha='center', va='bottom', fontsize=8)
+            axes[0].text(
+                b.get_x() + b.get_width() / 2, m,
+                f'{m:.2f}',
+                ha='center', va='bottom', fontsize=12
+            )
 
-    # Subplot 2: barras agrupadas (global/correctas/incorrectas)
+    # Subplot 2: grouped bars (correct / wrong)
     w = 0.25
-    axes[1].bar(idx - w, mean_conf_all, width=w, label='Media', color='tab:blue', alpha=0.85)
-    axes[1].bar(idx,      mean_conf_correct, width=w, label='Correctas', color='tab:green', alpha=0.85)
-    axes[1].bar(idx + w,  mean_conf_wrong, width=w, label='Incorrectas', color='tab:red', alpha=0.75)
-    axes[1].set_ylabel('Confianza')
-    axes[1].set_title('Confianza media: global, aciertos, errores')
-    axes[1].set_ylim(0.0, 1.0)
-    axes[1].grid(axis='y', alpha=0.25)
-    axes[1].legend(ncols=3, loc='upper center')
+    axes[1].bar(idx,      mean_conf_correct, width=w, label='Correct predictions', color='tab:green', alpha=0.85)
+    axes[1].bar(idx + w,  mean_conf_wrong, width=w, label='Wrong predictions', color='tab:red', alpha=0.75)
+
+    axes[1].set_ylabel('Mean confidence', fontsize=13)
+    axes[1].set_title('Mean confidence: Correct, wrong', fontdict=title_font)
+    axes[1].set_ylim(0.4, 1.0)
+    axes[1].grid(False)
+    axes[1].legend(ncols=3, loc='lower center', fontsize=8)
+
     for i in range(len(algo_names)):
-        vals = [mean_conf_all[i], mean_conf_correct[i], mean_conf_wrong[i]]
-        xs = [idx[i] - w, idx[i], idx[i] + w]
+        vals = [mean_conf_correct[i], mean_conf_wrong[i]]
+        xs = [idx[i], idx[i] + w]
         for xv, v in zip(xs, vals):
             if np.isfinite(v):
-                axes[1].text(xv, v, f'{v:.2f}', ha='center', va='bottom', fontsize=8)
+                axes[1].text(xv, v, f'{v:.2f}', ha='center', va='bottom', fontsize=12)
 
-    # Subplot 3: tasa de error (1 - accuracy)
+    # Subplot 3: error rate
     bars3 = axes[2].bar(idx, error_rates, color='tab:red', alpha=0.8)
     axes[2].set_xticks(idx)
-    axes[2].set_xticklabels(algo_names, rotation=30, ha='right')
-    axes[2].set_ylabel('Tasa de error')
-    axes[2].set_title('Error por algoritmo / método de SR (1 - accuracy)')
-    axes[2].set_ylim(0.0, 1.0)
-    axes[2].grid(axis='y', alpha=0.25)
+    axes[2].set_xticklabels(algo_names, rotation=30, ha='right', fontsize=12)
+    axes[2].set_ylabel('Error rate', fontsize=13)
+    axes[2].set_title('Error per SR algorithm / method (1 − accuracy)', fontdict=title_font)
+    axes[2].set_ylim(0.0, 0.6)
+    axes[2].grid(False)
+
     for b, e, nc, nw in zip(bars3, error_rates, counts_correct, counts_wrong):
         if np.isfinite(e):
-            axes[2].text(b.get_x() + b.get_width()/2, e, f'{e:.2f}\n(ok={nc}, err={nw})', ha='center', va='bottom', fontsize=8)
+            axes[2].text(
+                b.get_x() + b.get_width() / 2, e,
+                f'{e:.2f}',
+                ha='center', va='bottom', fontsize=12
+            )
 
     plt.tight_layout()
 
-    # Guardar figura combinada
     try:
         os.makedirs(save_dir, exist_ok=True)
-        fig.savefig(os.path.join(save_dir, filename), dpi=150)
+        fig.savefig(os.path.join(save_dir, filename), dpi=300, bbox_inches='tight')
     except Exception as e:
-        print('Aviso: no se pudo guardar', filename, ':', e)
+        print('Warning: could not save', filename, ':', e)
 
     plt.show()
