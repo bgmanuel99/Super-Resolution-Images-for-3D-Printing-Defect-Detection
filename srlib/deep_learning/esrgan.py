@@ -21,7 +21,7 @@ from keras.layers import (
 )
 from keras.backend import eval, mean, square, binary_crossentropy
 
-from srlib.progress import format_duration
+from srlib.progress import format_duration, stage
 from srlib.constants import (
     ESRGAN_GROWTH_CHANNELS,
     ESRGAN_LOSS_WEIGHTS,
@@ -31,7 +31,13 @@ from srlib.constants import (
     ESRGAN_SCALE_FACTOR,
 )
 from srlib.dataset.loading import add_padding
-from srlib.deep_learning.callbacks import EpochMemoryTracker, EpochTimeTracker
+from srlib.model_registry import prepare_run_directory, save_run_metrics
+from srlib.deep_learning.callbacks import (
+    EpochMemoryTracker,
+    EpochTimeTracker,
+    last_epoch_metrics,
+    profile_evaluation,
+)
 
 class SelfAttention(Layer):
     """
@@ -899,6 +905,68 @@ class ESRGAN:
 
         return metrics
     
+    def evaluate_and_save(
+            self, test_dataset, history, time_cb, mem_cb, timestamp=None):
+        """Evaluate the run, then persist both networks and the metrics.
+
+        The three steps travel together because they describe one training
+        run: splitting them across cells is what lets a checkpoint be saved
+        under one timestamp and its metrics under another.
+
+        Cost is charged over training and over this evaluation only. The
+        patch-wise reconstruction of a full frame belongs to the detection
+        pipeline, so it is not attributed to the model.
+
+        Parameters
+        ----------
+        test_dataset : tf.data.Dataset
+            Batched test pairs, normalised the way training saw them.
+        history : dict
+            Per-epoch curves returned by ``fit``.
+        time_cb, mem_cb : EpochTimeTracker, EpochMemoryTracker
+            Returned by ``fit`` alongside the history.
+        timestamp : str, optional
+            Run identifier. Defaults to the current time.
+
+        Returns
+        -------
+        tuple
+            ``(timestamp, run_dir, metrics)``.
+        """
+
+        timestamp = timestamp or datetime.datetime.now().strftime(
+            TIMESTAMP_FORMAT
+        )
+        run_name = f"ESRGAN_{timestamp}"
+
+        with stage(f"ESRGAN run {timestamp}") as step:
+            step("evaluating on the test partition")
+            results, eval_time_sec, eval_memory = profile_evaluation(
+                lambda: self.evaluate(test_dataset)
+            )
+
+            # The generator loss stands in for the loss of the other two
+            # models, so the reported key set stays identical across them.
+            metrics = {
+                "eval_loss": float(results["avg_g_loss"]),
+                "eval_psnr": float(results["avg_psnr"]),
+                "eval_ssim": float(results["avg_ssim"]),
+                **last_epoch_metrics(
+                    {**history, "loss": history.get("g_loss"),
+                     "val_loss": history.get("val_g_loss")}
+                ),
+                "epoch_time_sec": time_cb.mean_time_value(),
+                "memory": mem_cb.as_dict(),
+                "eval_time_sec": eval_time_sec,
+                "eval_memory": eval_memory,
+            }
+
+            run_dir = prepare_run_directory("ESRGAN", run_name)
+            self.save(directory=run_dir, timestamp=timestamp)
+            step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+
+        return timestamp, run_dir, metrics
+
     def super_resolve_image(self, lr_img, patch_size_lr=ESRGAN_PATCH_SIZE, stride=ESRGAN_STRIDE, batch_size=16):
         """Patch-wise super-resolution using the ESRGAN generator.
         Follows SRCNN/EDSR flow: reflect padding, patch extraction, batch predict, overlap-averaged reconstruction.

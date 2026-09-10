@@ -640,29 +640,47 @@ def extract_classification_patches(
         np.array(y, dtype=np.int64),
     )
 
-def report_patch_counts(step, X_train, X_val, X_test):
-    """Report how many patches each partition produced, and their weight.
+def report_patch_counts(step, X_train, X_val, X_test, Y_train=None):
+    """Report the shape, weight and sanity of the extracted partitions.
 
     The size in memory is worth showing next to the count: it is the figure
-    that explains a machine starting to swap halfway through a run, and it
-    is not obvious from the number of images.
+    that explains a machine starting to swap halfway through a run. The
+    value range and the NaN check are reported here rather than left to the
+    caller because they qualify the arrays this function just built, and a
+    silent NaN only surfaces much later as a loss that never converges.
 
     Parameters
     ----------
     step : callable
         The reporting helper yielded by ``srlib.progress.stage``.
     X_train, X_val, X_test : np.ndarray
-        Patch arrays of each partition.
+        Input arrays of each partition.
+    Y_train : np.ndarray, optional
+        Target array, reported alongside the input when it holds images.
     """
 
-    total_gb = sum(x.nbytes for x in (X_train, X_val, X_test)) / 2 ** 30
+    arrays = [x for x in (X_train, X_val, X_test, Y_train) if x is not None]
+    total_gb = sum(x.nbytes for x in arrays) / 2 ** 30
     shape = " x ".join(str(d) for d in X_train.shape[1:])
 
     step(
         f"patches   {len(X_train):,} train / {len(X_val):,} val / "
         f"{len(X_test):,} test   of {shape}"
     )
-    step(f"memory    {total_gb:.2f} GB of inputs")
+    step(f"memory    {total_gb:.2f} GB")
+
+    ranges = [f"X [{X_train.min():.4f}, {X_train.max():.4f}]"]
+    if Y_train is not None:
+        ranges.append(f"Y [{Y_train.min():.4f}, {Y_train.max():.4f}]")
+    step("range     " + "   ".join(ranges))
+
+    invalid = [name for name, x in (("X", X_train), ("Y", Y_train))
+               if x is not None and not np.isfinite(x).all()]
+    if invalid:
+        raise ValueError(
+            f"{', '.join(invalid)} of the training partition holds NaN or "
+            "infinite values, which would silently stop the loss converging."
+        )
 
 def validate_patch_params(patch_size, stride, scale_factor=None):
     """Validate the sliding window parameters shared by every loader."""
@@ -816,7 +834,7 @@ def load_srcnn_dataset(
             pairs, test[0], patch_size, stride, upscale_interpolation,
             desc="test",
         )
-        report_patch_counts(step, X_train, X_val, X_test)
+        report_patch_counts(step, X_train, X_val, X_test, Y_train)
 
         # The returned frame size is persisted and later used as the target
         # shape of every super-resolution method, so it must be a property of
@@ -904,7 +922,7 @@ def load_edsr_dataset(
         X_test, Y_test = extract_scaled_patch_pairs(
             pairs, test[0], patch_size, stride, scale_factor, desc="test"
         )
-        report_patch_counts(step, X_train, X_val, X_test)
+        report_patch_counts(step, X_train, X_val, X_test, Y_train)
 
     return X_train, Y_train, X_val, Y_val, X_test, Y_test
 
@@ -979,7 +997,7 @@ def load_esrgan_dataset(
         X_test, Y_test = extract_scaled_patch_pairs(
             pairs, test[0], patch_size, stride, scale_factor, desc="test"
         )
-        report_patch_counts(step, X_train, X_val, X_test)
+        report_patch_counts(step, X_train, X_val, X_test, Y_train)
 
     return X_train, Y_train, X_val, Y_val, X_test, Y_test
 

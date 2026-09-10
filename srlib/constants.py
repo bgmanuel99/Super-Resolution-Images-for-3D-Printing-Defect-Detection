@@ -41,6 +41,11 @@ MODELS_ROOT = os.path.join(REPO_ROOT, "models")
 # filenames with the '/' operator.
 RESULTS_ROOT = os.path.join(REPO_ROOT, "results")
 EDA_RESULTS_DIR = os.path.join(RESULTS_ROOT, "eda")
+
+# PSNR above which an LR/HR pair is reported as degenerate by the EDA. The
+# degradation leaves the bulk of the dataset near 27 dB, so a pair this far
+# above it is one whose frame held no content for the degradation to alter.
+DEGENERATE_PAIR_PSNR = 45.0
 CLASSIC_RESULTS_DIR = Path(RESULTS_ROOT) / "classic"
 DL_RESULTS_DIR = os.path.join(RESULTS_ROOT, "deep_learning")
 
@@ -198,6 +203,12 @@ DEGRADATION_SCALE_FACTOR = 0.5
 #
 # Every cycle: edit the knobs, delete images/HR, images/LR and the log, re-run.
 DEFAULT_DEGRADATION_SEED = 42
+
+# Grayscale standard deviation below which an extracted crop is discarded.
+# Fade frames at the start and end of a recording hold no object, and a
+# degradation cannot alter a flat image, so the pair would score above 80 dB
+# of PSNR and enter the splits as a black square compared against itself.
+BLANK_FRAME_MIN_STD = 1.0
 
 DEFAULT_DEGRADATION_CONFIG = {
     "gaussian_blur": {

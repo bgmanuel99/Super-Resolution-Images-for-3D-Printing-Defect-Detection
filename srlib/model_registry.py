@@ -1,4 +1,5 @@
 import os
+import pickle
 import re
 from datetime import datetime
 
@@ -47,6 +48,56 @@ def vgg16_variant_name(source, timestamp):
         raise ValueError("timestamp must be a non-empty string.")
 
     return f"VGG16_{source.upper()}_{timestamp}"
+
+def prepare_run_directory(model, run_name):
+    """Create and return the directory a training run writes into.
+
+    Owned by this module because it is the same path ``model_artifacts``
+    resolves when the run is read back. Creating it here also means a
+    deleted ``models/`` tree is rebuilt by the next run instead of raising.
+
+    Parameters
+    ----------
+    model : str
+        Model family, one of ``MODELS``.
+    run_name : str
+        Directory name, e.g. ``SRCNN_20260828_181500``.
+
+    Returns
+    -------
+    str
+        Absolute path of the created run directory.
+    """
+
+    run_dir = os.path.join(MODEL_FAMILY_ROOTS[_validate_model(model)], run_name)
+    os.makedirs(run_dir, exist_ok=True)
+
+    return run_dir
+
+def save_run_metrics(run_dir, run_name, metrics):
+    """Persist a run's metrics under the name ``model_artifacts`` expects.
+
+    Parameters
+    ----------
+    run_dir : str
+        Directory returned by ``prepare_run_directory``.
+    run_name : str
+        Same name used for the directory, used as the filename stem.
+    metrics : dict
+        Values consumed by the reporting notebooks.
+
+    Returns
+    -------
+    str
+        Path of the written pickle.
+    """
+
+    os.makedirs(run_dir, exist_ok=True)
+    path = os.path.join(run_dir, f"{run_name}_metrics.pkl")
+    with open(path, "wb") as f:
+        pickle.dump(metrics, f)
+
+    return path
 
 def _validate_model(model):
     """Normalise a model name and reject unknown ones."""

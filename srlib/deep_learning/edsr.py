@@ -193,6 +193,63 @@ class EDSR:
         
         return results
     
+    def evaluate_and_save(
+            self, X_test, Y_test, history, time_cb, mem_cb, timestamp=None):
+        """Evaluate the run, then persist the model and its metrics.
+
+        The three steps travel together because they describe one training
+        run: splitting them across cells is what lets a checkpoint be saved
+        under one timestamp and its metrics under another.
+
+        Cost is charged over training and over this evaluation only. The
+        patch-wise reconstruction of a full frame belongs to the detection
+        pipeline, so it is not attributed to the model.
+
+        Parameters
+        ----------
+        X_test, Y_test : np.ndarray
+            Test partition produced by ``load_edsr_dataset``.
+        history : keras.callbacks.History
+            Returned by ``fit``.
+        time_cb, mem_cb : EpochTimeCallback, EpochMemoryCallback
+            Returned by ``fit`` alongside the history.
+        timestamp : str, optional
+            Run identifier. Defaults to the current time.
+
+        Returns
+        -------
+        tuple
+            ``(timestamp, run_dir, metrics)``.
+        """
+
+        timestamp = timestamp or datetime.datetime.now().strftime(
+            TIMESTAMP_FORMAT
+        )
+        run_name = f"EDSR_{timestamp}"
+
+        with stage(f"EDSR run {timestamp}") as step:
+            step("evaluating on the test partition")
+            results, eval_time_sec, eval_memory = profile_evaluation(
+                lambda: self.evaluate(X_test, Y_test)
+            )
+
+            metrics = {
+                "eval_loss": float(results[0]),
+                "eval_psnr": float(results[1]),
+                "eval_ssim": float(results[2]),
+                **last_epoch_metrics(history.history),
+                "epoch_time_sec": time_cb.mean_time_value(),
+                "memory": mem_cb.as_dict(),
+                "eval_time_sec": eval_time_sec,
+                "eval_memory": eval_memory,
+            }
+
+            run_dir = prepare_run_directory("EDSR", run_name)
+            self.save(directory=run_dir, timestamp=timestamp)
+            step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+
+        return timestamp, run_dir, metrics
+
     def super_resolve_image(self, lr_img, patch_size_lr=48, stride=24):
         """Patch-based SR similar in flow to SRCNN, but accepts an in-memory LR numpy array.
         Steps: add padding, extract LR patches, batch-predict HR patches, reconstruct with

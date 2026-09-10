@@ -1,4 +1,6 @@
+import datetime
 import os
+import pickle
 
 import cv2
 import numpy as np
@@ -12,10 +14,18 @@ from srlib.constants import (
     SRCNN_PATCH_SIZE,
     SRCNN_STRIDE,
     SRCNN_UPSCALE_INTERPOLATION,
+    TIMESTAMP_FORMAT,
 )
 from srlib.dataset.loading import add_padding
 from srlib.metrics import psnr, ssim
-from srlib.deep_learning.callbacks import EpochMemoryCallback, EpochTimeCallback
+from srlib.model_registry import prepare_run_directory, save_run_metrics
+from srlib.progress import stage
+from srlib.deep_learning.callbacks import (
+    EpochMemoryCallback,
+    EpochTimeCallback,
+    last_epoch_metrics,
+    profile_evaluation,
+)
 
 class SRCNNModel:
     def __init__(self):
@@ -109,6 +119,72 @@ class SRCNNModel:
         print(f"Loss: {results[0]:.4f}, PSNR: {results[1]:.2f} dB, SSIM: {results[2]:.4f}")
         
         return results
+
+    def evaluate_and_save(
+            self, X_test, Y_test, history, time_cb, mem_cb, hr_h, hr_w,
+            timestamp=None):
+        """Evaluate the run, then persist the model and its metrics.
+
+        The three steps travel together because they describe one training
+        run: splitting them across cells is what lets a checkpoint be saved
+        under one timestamp and its metrics under another.
+
+        Cost is charged over training and over this evaluation only. The
+        patch-wise reconstruction of a full frame belongs to the detection
+        pipeline, so it is not attributed to the model.
+
+        Parameters
+        ----------
+        X_test, Y_test : np.ndarray
+            Test partition produced by ``load_srcnn_dataset``.
+        history : keras.callbacks.History
+            Returned by ``fit``.
+        time_cb, mem_cb : EpochTimeCallback, EpochMemoryCallback
+            Returned by ``fit`` alongside the history.
+        hr_h, hr_w : int
+            HR frame size, persisted so the pipeline can reassemble frames.
+        timestamp : str, optional
+            Run identifier. Defaults to the current time.
+
+        Returns
+        -------
+        tuple
+            ``(timestamp, run_dir, metrics)``.
+        """
+
+        timestamp = timestamp or datetime.datetime.now().strftime(
+            TIMESTAMP_FORMAT
+        )
+        run_name = f"SRCNN_{timestamp}"
+
+        with stage(f"SRCNN run {timestamp}") as step:
+            step("evaluating on the test partition")
+            results, eval_time_sec, eval_memory = profile_evaluation(
+                lambda: self.evaluate(X_test, Y_test)
+            )
+
+            metrics = {
+                "eval_loss": float(results[0]),
+                "eval_psnr": float(results[1]),
+                "eval_ssim": float(results[2]),
+                **last_epoch_metrics(history.history),
+                "epoch_time_sec": time_cb.mean_time_value(),
+                "memory": mem_cb.as_dict(),
+                "eval_time_sec": eval_time_sec,
+                "eval_memory": eval_memory,
+            }
+
+            run_dir = prepare_run_directory("SRCNN", run_name)
+            self.save(directory=run_dir, timestamp=timestamp)
+
+            dimensions_path = os.path.join(run_dir, f"{run_name}_hrh_hrw.pkl")
+            with open(dimensions_path, "wb") as f:
+                pickle.dump((hr_h, hr_w), f)
+            step(f"frame size -> {dimensions_path}")
+
+            step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+
+        return timestamp, run_dir, metrics
     
     def super_resolve_image(self, lr_img, hr_h, hr_w, patch_size=SRCNN_PATCH_SIZE, stride=SRCNN_STRIDE, interpolation=SRCNN_UPSCALE_INTERPOLATION):
         """Super-resolve an in-memory LR RGB image array using padding and patch-wise inference.

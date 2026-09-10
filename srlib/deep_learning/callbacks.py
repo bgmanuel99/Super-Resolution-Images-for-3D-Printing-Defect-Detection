@@ -3,6 +3,39 @@ import numpy as np
 import tensorflow as tf
 from keras.callbacks import Callback
 
+def last_epoch_metrics(history, keys=("loss", "psnr", "ssim")):
+    """Take the last-epoch value of each train/validation curve.
+
+    Reported as a scalar per curve because the comparison across models is
+    a table, not a set of curves. A key the model never recorded resolves
+    to None rather than being dropped, so every model writes the same set
+    of keys and the reporting notebook never has to guard for a missing one.
+
+    Parameters
+    ----------
+    history : dict
+        Mapping of curve name to per-epoch values.
+    keys : sequence of str
+        Curve stems to read, each looked up as ``k`` and ``val_k``.
+
+    Returns
+    -------
+    dict
+        ``final_train_<k>`` and ``final_val_<k>`` for every requested key.
+    """
+
+    def tail(name):
+        values = history.get(name)
+
+        return float(values[-1]) if values is not None and len(values) else None
+
+    metrics = {}
+    for key in keys:
+        metrics[f"final_train_{key}"] = tail(key)
+        metrics[f"final_val_{key}"] = tail(f"val_{key}")
+
+    return metrics
+
 def _bytes_to_mb(b):
     if b is None:
         return None

@@ -2,15 +2,16 @@ import hashlib
 import json
 import os
 import pickle
+import time
 from dataclasses import dataclass
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 
+from srlib.progress import format_duration
 from srlib.constants import (
+    BLANK_FRAME_MIN_STD,
     CLASS_LABELS_PATH,
-    EDA_RESULTS_DIR,
     DEFAULT_DEGRADATION_CONFIG,
     DEFAULT_DEGRADATION_SEED,
     DEGRADATION_LOG_PATH,
@@ -395,30 +396,23 @@ class VideoExtractionStats:
     source_frame_size: tuple
     hr_frame_size: tuple
     lr_frame_size: tuple
+    skipped_blank: int = 0
 
 def format_extraction_report(stats):
-    """Render a VideoExtractionStats as the per-video analysis block."""
+    """Render a VideoExtractionStats as one line.
 
-    hr_size = (
-        f"{stats.hr_frame_size[0]} x {stats.hr_frame_size[1]}"
-        if stats.hr_frame_size else "n/a"
-    )
-    lr_size = (
-        f"{stats.lr_frame_size[0]} x {stats.lr_frame_size[1]}"
-        if stats.lr_frame_size else "n/a"
-    )
+    One video per line keeps the whole build readable inside a notebook
+    cell. The frame sizes are constant across a folder, so they are
+    reported once per folder instead of once per video.
+    """
 
-    return "\n".join([
-        "=== VIDEO ANALYSIS ===",
-        f"Video: {stats.video_path}",
-        f"Total frames: {stats.total_frames}",
-        f"Images saved in this run: {stats.images_saved}",
-        f"Total images in directory: {stats.images_in_directory}",
-        "Original HR frame size (width x height): "
-        f"{stats.source_frame_size[0]} x {stats.source_frame_size[1]}",
-        f"Cropped HR frame size (width x height): {hr_size}",
-        f"LR frame size (width x height): {lr_size}",
-    ])
+    name = os.path.basename(stats.video_path)
+    blank = f" ({stats.skipped_blank} blank)" if stats.skipped_blank else ""
+
+    return (
+        f"    {name:<28} {stats.total_frames:>6} frames -> "
+        f"{stats.images_saved:>3} pairs{blank}"
+    )
 
 def _validate_extraction_args(
         video_path,
@@ -555,6 +549,26 @@ def _degrade_frame(
 
     return degrade_image(hr_frame, scale_factor=scale_factor, params=recorded)
 
+def _is_blank(image, min_std=BLANK_FRAME_MIN_STD):
+    """Report whether a crop carries no usable content.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        BGR crop as written to disk.
+    min_std : float
+        Grayscale standard deviation below which the crop counts as blank.
+
+    Returns
+    -------
+    bool
+        True when the crop is flat enough to be a fade frame.
+    """
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    return float(gray.std()) < min_std
+
 def _iter_selected_frames(cap, frame_interval):
     """Yield the frames that land on the sampling interval."""
 
@@ -661,11 +675,20 @@ def create_hr_lr_images_from_video(
         start_index = _next_image_index(hr_dir, output_name)
         next_index = start_index
         hr_size, lr_size = None, None
+        skipped_blank = 0
 
         for frame in _iter_selected_frames(cap, frame_interval):
-            basename = f"{output_name}{next_index}.png"
-
             hr_crop = smart_square_crop(frame)
+
+            # Fades at the start and end of a recording yield frames with no
+            # object at all. They cannot be degraded, so the pair ends up
+            # identical and reports a PSNR of 80 dB or more, which is not a
+            # reconstruction result but a black square scoring against itself.
+            if _is_blank(hr_crop):
+                skipped_blank += 1
+                continue
+
+            basename = f"{output_name}{next_index}.png"
             cv2.imwrite(os.path.join(hr_dir, basename), hr_crop)
             class_map[basename] = class_label
 
@@ -699,6 +722,7 @@ def create_hr_lr_images_from_video(
         source_frame_size=source_size,
         hr_frame_size=hr_size,
         lr_frame_size=lr_size,
+        skipped_blank=skipped_blank,
     )
 
 def _defect_type_from_filename(video_file):
@@ -788,6 +812,10 @@ def build_dataset_from_videos(
     )
 
     processed, images, failures = {}, {}, []
+    mode = "replaying the log" if replay_from_log else f"seed {master_seed}"
+    started = time.perf_counter()
+    print(f"\n{'=' * 64}\n Dataset build | {mode}, scale {scale_factor}\n"
+          f"{'=' * 64}", flush=True)
 
     for folder, max_videos in max_videos_per_folder.items():
         directory = os.path.join(videos_root, folder)
@@ -801,27 +829,21 @@ def build_dataset_from_videos(
             continue
 
         frame_interval = frame_interval_per_folder.get(folder, 40)
-        count, saved = 0, 0
+        count, saved, blank = 0, 0, 0
+        frame_sizes = set()
 
         candidates = _list_videos(directory)[:max_videos]
         print(
-            f"\n[{folder}] class {class_id} | {len(candidates)} video(s), "
-            f"one frame every {frame_interval}",
+            f"\n  {folder}  (class {class_id}, {len(candidates)} videos, "
+            f"1 frame every {frame_interval})",
             flush=True,
         )
 
-        for position, video_file in enumerate(candidates, 1):
+        for video_file in candidates:
             if count >= max_videos:
                 break
 
             video_path = os.path.join(directory, video_file)
-            # Announced before the work, not after: decoding a video takes
-            # long enough that the per-video report arrives too late to tell
-            # whether the run is progressing or stuck.
-            print(
-                f"  ({position}/{len(candidates)}) {video_file}",
-                flush=True,
-            )
             try:
                 stats = create_hr_lr_images_from_video(
                     video_path,
@@ -838,110 +860,37 @@ def build_dataset_from_videos(
                 continue
 
             if verbose:
-                print(format_extraction_report(stats))
+                print(format_extraction_report(stats), flush=True)
 
+            if stats.hr_frame_size:
+                frame_sizes.add((stats.hr_frame_size, stats.lr_frame_size))
             count += 1
             saved += stats.images_saved
+            blank += stats.skipped_blank
+
+        for hr_size, lr_size in sorted(frame_sizes):
+            print(
+                f"    -> HR {hr_size[0]}x{hr_size[1]}  "
+                f"LR {lr_size[0]}x{lr_size[1]}",
+                flush=True,
+            )
+        summary = f"    -> {saved} pairs from {count} videos"
+        if blank:
+            summary += f", {blank} blank frames discarded"
+        print(summary, flush=True)
 
         processed[folder] = count
         images[folder] = saved
 
-    print(f"\nVideos processed per folder: {processed}")
-    print(f"Images saved per folder: {images}")
-    print(f"Total HR/LR pairs: {sum(images.values())}")
+    print(f"\n  TOTAL     {sum(images.values())} HR/LR pairs from "
+          f"{sum(processed.values())} videos", flush=True)
     if failures:
-        print(f"\n{len(failures)} video(s) failed:")
+        print(f"  FAILED    {len(failures)} video(s):", flush=True)
         for video_path, message in failures:
-            print(f"  - {video_path}: {message}")
+            print(f"    {os.path.basename(video_path)}: {message}", flush=True)
+    print(f"  done in {format_duration(time.perf_counter() - started)}\n",
+          flush=True)
 
     return {"processed": processed, "images": images, "failures": failures}
 
-def _pick_sample_basenames(folder, count, indices=None):
-    """
-    Choose which images of a class folder to show.
 
-    Without explicit indices the picks are spread evenly across the folder,
-    which is more representative than taking the first few and does not
-    break when the folder has fewer images than requested.
-    """
-
-    names = sorted(
-        f for f in os.listdir(folder) if f.lower().endswith(".png")
-    )
-    if not names:
-        raise ValueError(f"No PNG images found under {folder}")
-
-    if indices is None:
-        step = max(1, len(names) // (count + 1))
-        chosen = [min((i + 1) * step, len(names) - 1) for i in range(count)]
-    else:
-        chosen = [min(int(i), len(names) - 1) for i in indices[:count]]
-
-    return [names[i] for i in chosen]
-
-def plot_hr_lr_samples(
-        class_folders=("low_z_offset", "high_z_offset"),
-        samples_per_folder=2,
-        sample_indices=None,
-        output_path=None,
-        figsize=(8, 4)):
-    """
-    Show HR images next to their LR counterparts, one column per sample.
-
-    HR on the top row and LR on the bottom, so the loss of detail the
-    degradation introduces can be read column by column.
-
-    Parameters
-    ----------
-    class_folders : sequence of str
-        Subfolders of the HR and LR roots to sample from, in plotting order.
-    samples_per_folder : int
-        Columns to draw per folder.
-    sample_indices : dict, optional
-        ``{folder: [index, ...]}`` to pin specific images. Indices are into
-        the sorted file list and are clamped to the folder size. Defaults to
-        evenly spread picks.
-    output_path : str, optional
-        Where to write the figure. Defaults to ``hr_lr_samples.eps`` under
-        the EDA results directory, since it is a figure and not part of the
-        dataset. None-safe: pass an empty string to skip saving.
-
-    Returns
-    -------
-    tuple
-        ``(fig, axes)``.
-    """
-
-    sample_indices = sample_indices or {}
-    if output_path is None:
-        output_path = os.path.join(EDA_RESULTS_DIR, "hr_lr_samples.eps")
-
-    selected = [
-        (folder, basename)
-        for folder in class_folders
-        for basename in _pick_sample_basenames(
-            os.path.join(HR_ROOT, folder),
-            samples_per_folder,
-            sample_indices.get(folder),
-        )
-    ]
-
-    fig, axes = plt.subplots(2, len(selected), figsize=figsize)
-    for column, (folder, basename) in enumerate(selected):
-        for row, root in enumerate((HR_ROOT, LR_ROOT)):
-            axes[row, column].imshow(
-                plt.imread(os.path.join(root, folder, basename))
-            )
-            axes[row, column].axis("off")
-
-    fig.text(0.0, 0.75, "HR", va="center", ha="center", fontsize=12)
-    fig.text(0.0, 0.25, "LR", va="center", ha="center", fontsize=12)
-    plt.tight_layout()
-
-    if output_path:
-        directory = os.path.dirname(output_path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-        plt.savefig(output_path, dpi=300, format="eps", bbox_inches="tight")
-
-    return fig, axes

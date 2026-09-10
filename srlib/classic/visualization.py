@@ -92,6 +92,7 @@ def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_t
     fig.suptitle(main_title, fontsize=14)
 
     if outfile:
+        Path(outfile).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(Path(outfile), dpi=150, bbox_inches='tight')
 
 def plot_psnr_ssim_panels(metric_summary, algorithms_order, colors_map, main_title, outfile, figsize=(18, 9)):
@@ -198,6 +199,7 @@ def plot_psnr_ssim_panels(metric_summary, algorithms_order, colors_map, main_tit
     fig.suptitle(main_title, fontsize=14)
 
     if outfile:
+        Path(outfile).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(Path(outfile), dpi=150, bbox_inches='tight')
         
 def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_dir=None,
@@ -320,74 +322,12 @@ def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_d
     # Optional: save figure
     if save and results_dir is not None:
         try:
+            Path(results_dir).mkdir(parents=True, exist_ok=True)
             out_fig = Path(results_dir) / 'speed_quality_tradeoff_3d.png'
             fig.savefig(out_fig, dpi=150, bbox_inches='tight')
         except Exception:
             pass
 
-def plot_error_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(14, 8)):
-    """
-    Display and save a 2x2 grid with MAE/RMSE mean and max across algorithms.
-
-    Panels (row-major):
-      [0,0] MAE Mean
-      [0,1] MAE Max
-      [1,0] RMSE Mean
-      [1,1] RMSE Max
-    """
-
-    # Collect values strictly from metric_summary
-    mae_mean = [metric_summary[a].get('mae_mean', np.nan) for a in algorithms]
-    mae_max  = [metric_summary[a].get('mae_max',  np.nan) for a in algorithms]
-    rmse_mean = [metric_summary[a].get('rmse_mean', np.nan) for a in algorithms]
-    rmse_max  = [metric_summary[a].get('rmse_max',  np.nan) for a in algorithms]
-
-    def _bar(ax, data, title, fmt='{:.4g}'):
-        x = np.arange(len(algorithms))
-        # Pre-compute dynamic limits with headroom for labels
-        data_arr = np.array(data, dtype=float)
-        valid = data_arr[np.isfinite(data_arr)]
-        if valid.size:
-            ymin = 0.0 if valid.min() >= 0 else float(valid.min())
-            span = float(valid.max() - ymin)
-            if not np.isfinite(span) or span <= 0:
-                span = 1.0
-            margin = 0.10 * span  # headroom for text above bars
-            ax.set_ylim(ymin, float(valid.max()) + margin)
-        bars = ax.bar(x, data, color=[colors[a] for a in algorithms])
-        ax.set_title(title)
-        ax.set_xticks(x)
-        ax.set_xticklabels(algorithms, rotation=30, ha='right')
-        # annotate
-        bottom, top = ax.get_ylim()
-        span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
-        pad = 0.02 * span
-        max_needed = -np.inf
-        for rect, val in zip(bars, data):
-            if not (isinstance(val, (int, float)) and np.isfinite(val)):
-                continue
-            label_y = rect.get_height() + pad * 0.6
-            ax.text(rect.get_x() + rect.get_width()/2, label_y, fmt.format(val), ha='center', va='bottom', fontsize=8)
-            max_needed = max(max_needed, label_y)
-        # If labels would overflow, expand top with a small extra
-        if np.isfinite(max_needed) and max_needed > top:
-            extra = max(0.03 * (max_needed - bottom), 0.03)
-            ax.set_ylim(bottom, max_needed + extra)
-
-    fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
-    _bar(axes[0,0], mae_mean, 'MAE Mean') # Lower is better
-    _bar(axes[0,1], mae_max,  'MAE Max') # Lower is better
-    _bar(axes[1,0], rmse_mean,'RMSE Mean') # Lower is better
-    _bar(axes[1,1], rmse_max, 'RMSE Max') # Lower is better
-
-    fig.suptitle('Error Metrics: MAE & RMSE (Mean/Max)')
-    if results_dir is not None:
-        try:
-            out = Path(results_dir) / 'error_metrics_mae_rmse.png'
-            fig.savefig(out, dpi=150, bbox_inches='tight')
-        except Exception:
-            pass
-    plt.show()
 
 def plot_edge_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(12, 5)):
     """
@@ -428,63 +368,13 @@ def plot_edge_metrics_grid(metric_summary, algorithms, colors, results_dir=None,
     fig.suptitle('Edge/Gradient Metrics: Mean Values')
     if results_dir is not None:
         try:
+            Path(results_dir).mkdir(parents=True, exist_ok=True)
             out = Path(results_dir) / 'edge_gradient_metrics_mean.png'
             fig.savefig(out, dpi=150, bbox_inches='tight')
         except Exception:
             pass
     plt.show()
 
-def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors, results_dir=None, figsize=(16, 5)):
-    """
-    Display and save a 1x3 grid with mean values of:
-      - HF Energy Ratio mean (relative)
-      - KL Luma mean
-      - KL Color mean
-    across algorithms.
-
-    All three panels cover every algorithm. The advanced four are applied
-    channel by channel like the interpolations, so their colour divergence
-    is defined and the ranking already weights it; hiding them here would
-    contradict the table drawn from the same summary.
-    """
-
-    hf_ratio_mean = [metric_summary[a].get('hf_ratio_mean', np.nan) for a in algorithms]
-    kl_luma_mean = [metric_summary[a].get('kl_luma_mean', np.nan) for a in algorithms]
-    kl_color_mean = [metric_summary[a].get('kl_color_mean', np.nan) for a in algorithms]
-
-    def _bar(ax, data, title, fmt='{:.4g}'):
-        x = np.arange(len(algorithms))
-        bars = ax.bar(x, data, color=[colors[a] for a in algorithms])
-        ax.set_title(title)
-        ax.set_xticks(x)
-        ax.set_xticklabels(algorithms, rotation=30, ha='right')
-        bottom, top = ax.get_ylim()
-        span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
-        pad = 0.01 * span
-        ymax = -np.inf
-        for rect, val in zip(bars, data):
-            if not np.isfinite(val):
-                continue
-            y = rect.get_height() + pad
-            ax.text(rect.get_x() + rect.get_width()/2, y, fmt.format(val), ha='center', va='bottom', fontsize=8)
-            ymax = max(ymax, y)
-        if np.isfinite(ymax) and ymax > ax.get_ylim()[1]:
-            bottom, _ = ax.get_ylim()
-            ax.set_ylim(top=ymax + max(0.02 * (ymax - bottom), 0.02))
-
-    fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
-    _bar(axes[0], hf_ratio_mean, 'High-Frequency Energy Ratio Mean (relative)')
-    _bar(axes[1], kl_luma_mean, 'KL Divergence (Luma) Mean') # Lower is better
-    _bar(axes[2], kl_color_mean, 'KL Divergence (Color) Mean') # Lower is better
-
-    fig.suptitle('Frequency/Distribution Metrics: Mean Values')
-    if results_dir is not None:
-        try:
-            out = Path(results_dir) / 'freq_distribution_metrics_mean.png'
-            fig.savefig(out, dpi=150, bbox_inches='tight')
-        except Exception:
-            pass
-    plt.show()
     
 def plot_and_save_super_resolution_example(vis, ibp_example, nlm_example, egi_example, freq_example, results_dir):
     hr_img_v, lr_img_v, bilinear_v, bicubic_v, area_v, lanczos_v = vis
@@ -514,49 +404,10 @@ def plot_and_save_super_resolution_example(vis, ibp_example, nlm_example, egi_ex
         plt.title(title)
         plt.axis('off')
     plt.tight_layout()
-    out_grid = results_dir / 'super_resolution_example.png'
+    Path(results_dir).mkdir(parents=True, exist_ok=True)
+    out_grid = Path(results_dir) / 'super_resolution_example.png'
     plt.savefig(out_grid, dpi=150)
     
-def plot_and_save_ssim_similarity_maps(vis, ibp_example, nlm_example, egi_example, freq_example, results_dir):
-    def to_gray(img):
-        return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) if img.ndim == 3 else img
-
-    hr_img_v, lr_img_v, bilinear_v, bicubic_v, area_v, lanczos_v = vis
-    hr_g_v, lr_g_v, ibp_v = ibp_example
-    hr_v, nlm_v = nlm_example
-    hr_egi_v, lr_egi_v, egi_v = egi_example
-    hr_freq_v, freq_v = freq_example
-
-    # List of (name, HR, SR) triples in the required order. The SSIM map is a
-    # spatial view, so every pair is compared on luminance.
-    pairs = [
-        ('Bilinear', to_gray(hr_img_v), to_gray(bilinear_v)),
-        ('Bicubic',  to_gray(hr_img_v), to_gray(bicubic_v)),
-        ('Area',     to_gray(hr_img_v), to_gray(area_v)),
-        ('Lanczos',  to_gray(hr_img_v), to_gray(lanczos_v)),
-        ('IBP',      to_gray(hr_g_v), to_gray(ibp_v)),
-        ('NLM',      to_gray(hr_v), to_gray(nlm_v)),
-        ('EGI',      to_gray(hr_egi_v), to_gray(egi_v)),
-        ('FREQ',     to_gray(hr_freq_v), to_gray(freq_v)),
-    ]
-
-    ssim_maps = []
-    titles = []
-    for name, hr_g, sr_g in pairs:
-        data_range = 255 if hr_g.dtype != np.float32 else 1.0
-        val, ssim_map = ssim(hr_g, sr_g, data_range=data_range, full=True)
-        ssim_maps.append((ssim_map, val))
-        titles.append(name)
-
-    plt.figure(figsize=(20, 6))
-    for i, ((ssim_map, val), name) in enumerate(zip(ssim_maps, titles), start=1):
-        plt.subplot(2, 4, i)
-        plt.imshow(ssim_map, cmap='gray', vmin=0, vmax=1)
-        plt.title(f"{name}\nSSIM={val:.4f}")
-        plt.axis('off')
-    plt.tight_layout()
-    out_diff = results_dir / 'ssim_similarity_maps.png'
-    plt.savefig(out_diff, dpi=150)
     
 def show_algorithm_ranking(
     metric_summary,
@@ -700,6 +551,7 @@ def show_algorithm_ranking(
     # Optional: save panel
     if results_dir is not None:
         try:
+            Path(results_dir).mkdir(parents=True, exist_ok=True)
             out_path = Path(results_dir) / filename
             fig.savefig(out_path, dpi=dpi, bbox_inches='tight')
         except Exception:
