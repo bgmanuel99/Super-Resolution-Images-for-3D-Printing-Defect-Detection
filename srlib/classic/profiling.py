@@ -1,43 +1,70 @@
+import gc
 import time
-import tracemalloc
 from math import sqrt
 
 import cv2
 import numpy as np
+import psutil
 
-DEF_EPS = 1e-9
-
-# Ranking utilities
-MAXIMIZE_DEFAULT = ['psnr_mean', 'ssim_mean']
-MINIMIZE_DEFAULT = ['time_mean', 'memory_mean', 'mae_mean', 'rmse_mean']
+from srlib.constants import (
+    DEF_EPS,
+    HF_RADIUS_FRACTION,
+    PROFILE_REPEATS,
+    PROFILE_WARMUP,
+)
 
 # --------------------- #
 # Time / Memory metrics #
 # --------------------- #
-def time_algorithm(func, *args, **kwargs):
-    """Return (result, elapsed_seconds) for the callable.
+def profile_algorithm(
+        func, *args, repeats=PROFILE_REPEATS, warmup=PROFILE_WARMUP, **kwargs):
+    """Profile wall-clock time and memory of a callable in a single pass.
 
-    Measures only the direct execution (wall clock) of the function body.
+    Time is the median of ``repeats`` timed runs after ``warmup`` untimed
+    ones, so the first-call cache misses do not bias the result and a
+    single outlier does not carry the estimate.
+
+    Memory is the growth of the process resident set across the timed
+    runs. The classic algorithms are OpenCV calls that allocate their
+    buffers in C++, outside the Python allocator, so a Python-level
+    tracer cannot see them.
+
+    Parameters
+    ----------
+    func : callable
+        Algorithm to profile.
+    repeats : int
+        Timed executions. Must be at least 1.
+    warmup : int
+        Untimed executions run first.
+
+    Returns
+    -------
+    tuple
+        ``(result, elapsed_seconds, memory_bytes)`` where result comes
+        from the last timed run.
     """
-    
-    start = time.perf_counter()
-    result = func(*args, **kwargs)
-    elapsed = time.perf_counter() - start
-    
-    return result, elapsed
 
-def memory_algorithm(func, *args, **kwargs):
-    """Return (result, peak_bytes) for the callable execution.
+    if repeats < 1:
+        raise ValueError(f"repeats must be at least 1, got {repeats}.")
 
-    Uses tracemalloc to capture peak allocated memory during the call.
-    """
-    
-    tracemalloc.start()
-    result = func(*args, **kwargs)
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    
-    return result, peak
+    for _ in range(warmup):
+        func(*args, **kwargs)
+
+    process = psutil.Process()
+    gc.collect()
+    rss_before = process.memory_info().rss
+
+    result = None
+    timings = []
+    for _ in range(repeats):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        timings.append(time.perf_counter() - start)
+
+    rss_after = process.memory_info().rss
+
+    return result, float(np.median(timings)), max(0, rss_after - rss_before)
 
 # ------------- #
 # Error metrics #
@@ -95,7 +122,7 @@ def epi(hr, sr):
 # -------------------------------- #
 # Frequency / distribution metrics #
 # -------------------------------- #
-def hf_energy_ratio(hr, sr, radius_frac=0.6):
+def hf_energy_ratio(hr, sr, radius_frac=HF_RADIUS_FRACTION):
     """High-frequency energy ratio between SR and HR (grayscale)."""
     
     hr_f = hr.astype(np.float32)
@@ -233,8 +260,9 @@ def compute_summary_stats(values):
 
     Notes
     -----
-    The function is resilient to empty input returning NaNs (except count=0)
-    so downstream plotting logic can safely annotate missing data.
+    Requires at least one value: ``np.mean`` and ``np.max`` raise on an empty
+    sequence. Every caller feeds it one sample per processed pair, and the
+    benchmark refuses to run on an empty dataset, so the case does not arise.
     """
     
     return {
@@ -339,8 +367,8 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
     summary : dict
         Mapping algorithm_name -> metric dict. Each metric dict should
         contain the metrics referenced in `maximize` / `minimize`, e.g.
-        'psnr_mean', 'time_mean', etc. Missing metrics are treated as NaN
-        and contribute zero to the score.
+        'psnr_mean', 'time_mean', etc. A metric missing for an algorithm is
+        dropped from its score and its weight redistributed over the rest.
     maximize : list[str] or None
         Metrics where higher values are better. If None, a comprehensive
         set is selected dynamically from available metrics
@@ -370,16 +398,24 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
     3. Normalize each algorithm's metric into [0,1]:
        - For maximize metrics: (val - min) / (max - min)
        - For minimize metrics: (max - val) / (max - min)
-       Invalid / constant-range metrics yield 0 contribution.
     4. Clip each normalized value to [0,1] for safety.
-    5. Multiply by its weight and sum to obtain an aggregate score.
+    5. Take the weighted mean over the metrics that apply, then rescale it
+       to the full weight budget so that scores remain comparable between
+       algorithms scored on a different number of metrics.
+
+    A metric is skipped for an algorithm when its value is not finite, or
+    when every algorithm shares the same value and the metric therefore
+    carries no information. Skipping redistributes the weight instead of
+    scoring the algorithm as the worst possible on that metric, which for a
+    metric under minimisation is what a zero contribution would mean.
 
     Returns
     -------
     ranked : list[tuple[str, float]]
-        Algorithms sorted descending by aggregate score.
+        Algorithms sorted descending by aggregate score, with algorithms
+        that had no applicable metric last.
     scores : dict[str, float]
-        Raw aggregate score per algorithm.
+        Aggregate score per algorithm, NaN when no metric applied.
     bounds : dict[str, tuple[float, float]]
         Per-metric (min, max) used for normalization (NaNs if undefined).
 
@@ -388,9 +424,6 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
     - When explicit maximize/minimize lists are provided, they are used
       as-is (no auto-augmentation). Defaults enable a richer composite
       score using all available metrics.
-    - Metrics with identical values across algorithms (max == min) have
-      zero discriminative impact.
-    - NaN metric values (or missing) are treated as zero contribution.
     - Adjust `weights` to emphasize metrics (e.g., PSNR vs time).
     - This function does not modify `summary`; it produces ranking
       artifacts for reporting / visualization.
@@ -473,24 +506,39 @@ def rank_algorithms(summary, maximize=None, minimize=None, weights=None):
         w_each = 1.0 / max(1, len(metrics_all))
         weights = {m: w_each for m in metrics_all}
 
-    # Score per algorithm
+    # Score per algorithm over the metrics that apply to it
+    total_weight = sum(weights.get(m, 0.0) for m in metrics_all)
+
     scores = {}
     for alg, stats in summary.items():
-        total = 0.0
+        weighted_sum = 0.0
+        applied_weight = 0.0
+
         for m in metrics_all:
             val = _get_metric_value(stats, m)
             lo, hi = bounds[m]
-            if not np.isfinite(val) or not np.isfinite(lo) or not np.isfinite(hi) or hi - lo == 0:
-                norm = 0.0
-            else:
-                if m in maximize:
-                    norm = (val - lo) / (hi - lo)
-                else:
-                    norm = (hi - val) / (hi - lo)
-                norm = float(np.clip(norm, 0.0, 1.0))
-            total += weights.get(m, 0.0) * norm
-        scores[alg] = total
+            if (not np.isfinite(val) or not np.isfinite(lo)
+                    or not np.isfinite(hi) or hi - lo == 0):
+                continue
 
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            if m in maximize:
+                norm = (val - lo) / (hi - lo)
+            else:
+                norm = (hi - val) / (hi - lo)
+
+            weight = weights.get(m, 0.0)
+            weighted_sum += weight * float(np.clip(norm, 0.0, 1.0))
+            applied_weight += weight
+
+        scores[alg] = (
+            weighted_sum / applied_weight * total_weight
+            if applied_weight > 0 else float('nan')
+        )
+
+    ranked = sorted(
+        scores.items(),
+        key=lambda item: (np.isfinite(item[1]), item[1]),
+        reverse=True,
+    )
 
     return ranked, scores, bounds

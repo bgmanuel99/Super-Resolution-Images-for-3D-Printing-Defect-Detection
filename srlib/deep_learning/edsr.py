@@ -1,6 +1,4 @@
 import os
-import sys
-import time
 
 import numpy as np
 import tensorflow as tf
@@ -15,10 +13,9 @@ from keras.layers import (
     Activation
 )
 
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
-
-from SRModels.metrics import psnr, ssim
-from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
+from srlib.dataset.loading import add_padding
+from srlib.metrics import psnr, ssim
+from srlib.deep_learning.callbacks import EpochMemoryCallback, EpochTimeCallback
 
 class EDSR:
     def __init__(self):
@@ -117,16 +114,26 @@ class EDSR:
         # Upsampling blocks (tail)
         x = self._upsampling_block(x, scale_factor, num_filters)
         
-        # Final convolution to produce RGB output
-        x = Conv2D(channels, (3, 3), padding="same", kernel_initializer="he_normal")(x)
-        
-        outputs = Lambda(lambda t: tf.clip_by_value(t, 0.0, 1.0), name="clip_0_1")(x)
-        
+        # Final convolution to produce RGB output. The output stays linear:
+        # bounding it inside the graph would zero the gradient of every
+        # pixel predicted outside the range, which is most of them early in
+        # training and the saturated regions later on. The range is enforced
+        # at reconstruction time instead, and Adam already caps the gradient
+        # norm.
+        outputs = Conv2D(
+            channels, (3, 3), padding="same",
+            kernel_initializer="he_normal", name="output",
+        )(x)
+
         self.model = Model(inputs, outputs, name="EDSR")
 
     def _compile_model(self, learning_rate, loss):
-        """Compile the model with Adam optimizer and specified loss, including PSNR and SSIM metrics."""
-        
+        """Compile with Adam and the requested loss, tracking PSNR and SSIM.
+
+        The EDSR paper trains with L1, which converges better than L2, so the
+        caller's choice of loss is what gets compiled.
+        """
+
         optimizer = Adam(
             learning_rate=learning_rate, 
             beta_1=0.9, 
@@ -134,7 +141,7 @@ class EDSR:
             epsilon=1e-8, 
             clipnorm=1.0
         )
-        self.model.compile(optimizer=optimizer, loss="mean_squared_error", metrics=[psnr, ssim])
+        self.model.compile(optimizer=optimizer, loss=loss, metrics=[psnr, ssim])
         self.model.summary()
 
     def fit(
@@ -145,7 +152,7 @@ class EDSR:
             Y_val, 
             batch_size=16, 
             epochs=300):
-        """Train the model using optional image data augmentation and standard callbacks."""
+        """Train the model over the extracted patch pairs and standard callbacks."""
         
         if self.model is None:
             raise ValueError("Model is not built yet.")
@@ -198,19 +205,6 @@ class EDSR:
             raise ValueError("scale_factor is not set. Call setup_model first.")
 
         # --- Helpers to mirror SRCNN's structure (adapted for EDSR scaling) ---
-        def add_padding(image, patch_size, stride):
-            """Reflect-pad LR image to ensure full coverage by sliding window."""
-            h, w, c = image.shape
-
-            pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
-            pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
-
-            pad_h = max(pad_h, patch_size - stride)
-            pad_w = max(pad_w, patch_size - stride)
-
-            padded_img = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
-            return padded_img, (h, w)
-
         def extract_patches_from_image(image, patch_size=48, stride=24):
             """Extract LR patches and their top-left positions."""
             h, w, _ = image.shape
@@ -255,55 +249,18 @@ class EDSR:
             
             return np.clip(reconstructed, 0.0, 1.0)
 
-        # --- Pad LR image ---
-        lr_img_padded, original_lr_shape = add_padding(lr_img, patch_size_lr, stride)
+        # --- Pad LR image with the shared helper so this grid matches training ---
+        original_lr_shape = lr_img.shape[:2]
+        lr_img_padded = add_padding(lr_img, patch_size_lr, stride)
 
         # --- Extract LR patches ---
         lr_patches, positions = extract_patches_from_image(lr_img_padded, patch_size_lr, stride)
 
-        # --- Predict HR patches in batch (measure time and GPU memory around predict) ---
-        def _read_gpu_info(device="GPU:0"):
-            try:
-                return tf.config.experimental.get_memory_info(device)
-            except Exception:
-                return None
-
-        gpu_begin = _read_gpu_info()
-        t0 = time.perf_counter()
-
+        # --- Predict HR patches in batch ---
         hr_patches = self.model.predict(lr_patches, batch_size=16, verbose=0)
 
-        elapsed = time.perf_counter() - t0
-        gpu_end = _read_gpu_info()
-
-        def _mb(x):
-            return None if x is None else float(x) / (1024.0 * 1024.0)
-
-        cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
-        cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
-        peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
-        peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
-
-        if cur_begin is not None and cur_end is not None:
-            mean_current_bytes = (cur_begin + cur_end) / 2.0
-            gpu_mean_current_mb = _mb(mean_current_bytes)
-        else:
-            gpu_mean_current_mb = _mb(cur_end) if cur_end is not None else None
-
-        gpu_peak_mb = None
-        if peak_begin is not None and peak_end is not None:
-            gpu_peak_mb = _mb(max(peak_begin, peak_end))
-        elif peak_end is not None:
-            gpu_peak_mb = _mb(peak_end)
-
-        inference_metrics = {
-            "time_sec": float(elapsed),
-            "gpu_mean_current_mb": gpu_mean_current_mb,
-            "gpu_peak_mb": gpu_peak_mb,
-        }
-
         # --- Reconstruct HR image and crop ---
-        sr_img = reconstruct_from_patches(
+        return reconstruct_from_patches(
             hr_patches,
             positions,
             lr_img_padded.shape,
@@ -311,8 +268,6 @@ class EDSR:
             patch_size_lr=patch_size_lr,
             scale=self.scale_factor,
         )
-
-        return sr_img, inference_metrics
 
     def save(self, directory, timestamp):
         """Save the trained model with a timestamp in the specified directory."""

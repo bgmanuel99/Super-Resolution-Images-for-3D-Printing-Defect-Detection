@@ -1,6 +1,4 @@
 import os
-import sys
-import time
 
 import cv2
 import numpy as np
@@ -10,10 +8,14 @@ from keras.layers import Conv2D, InputLayer
 from keras.models import Sequential, load_model
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
-from SRModels.metrics import psnr, ssim
-from keras.preprocessing.image import ImageDataGenerator
-from SRModels.deep_learning_models.callbacks import EpochTimeCallback, EpochMemoryCallback
+from srlib.constants import (
+    SRCNN_PATCH_SIZE,
+    SRCNN_STRIDE,
+    SRCNN_UPSCALE_INTERPOLATION,
+)
+from srlib.dataset.loading import add_padding
+from srlib.metrics import psnr, ssim
+from srlib.deep_learning.callbacks import EpochMemoryCallback, EpochTimeCallback
 
 class SRCNNModel:
     def __init__(self):
@@ -67,7 +69,7 @@ class SRCNNModel:
             Y_val,
             batch_size=16,
             epochs=50):
-        """Trains the model with optional data augmentation and callbacks."""
+        """Trains the model over the extracted patch pairs and callbacks."""
         
         if self.model is None:
             raise ValueError("Model has not been set up.")
@@ -108,13 +110,16 @@ class SRCNNModel:
         
         return results
     
-    def super_resolve_image(self, lr_img, hr_h, hr_w, patch_size=33, stride=14, interpolation=cv2.INTER_CUBIC):
+    def super_resolve_image(self, lr_img, hr_h, hr_w, patch_size=SRCNN_PATCH_SIZE, stride=SRCNN_STRIDE, interpolation=SRCNN_UPSCALE_INTERPOLATION):
         """Super-resolve an in-memory LR RGB image array using padding and patch-wise inference.
         Args:
             lr_img: np.ndarray RGB image; dtype uint8 [0,255] or float32 [0,1] or [0,255].
             hr_h, hr_w: Target HR dimensions to which LR is first upscaled before SRCNN.
             patch_size, stride: Patch extraction parameters.
             interpolation: OpenCV interpolation used to upscale LR to (hr_w, hr_h).
+                Defaults to the same shared constant the training loader uses,
+                since SRCNN sees an already-upscaled image and a mismatch here
+                would feed it a different input distribution than it learnt on.
         Returns:
             np.ndarray float32 RGB in [0,1] of shape (hr_h, hr_w, 3).
         """
@@ -123,28 +128,6 @@ class SRCNNModel:
             raise RuntimeError("Model has not been trained.")
         if lr_img is None or not isinstance(lr_img, np.ndarray):
             raise ValueError("lr_img must be a numpy array (RGB).")
-        
-        def add_padding(image, patch_size, stride):
-            """Add padding to ensure full coverage."""
-            
-            h, w, c = image.shape
-            
-            # Calcular cuánto padding se necesita
-            pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
-            pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
-            
-            # Agregar padding extra para asegurar cobertura completa
-            pad_h = max(pad_h, patch_size - stride)
-            pad_w = max(pad_w, patch_size - stride)
-            
-            # Padding reflejado (mirror) para mantener continuidad
-            padded_img = np.pad(
-                image, 
-                ((0, pad_h), (0, pad_w), (0, 0)), 
-                mode='reflect'
-            )
-            
-            return padded_img, (h, w)
         
         def extract_patches_from_image(image, patch_size=33, stride=14):
             """Extracts patches from an image."""
@@ -174,7 +157,7 @@ class SRCNNModel:
                 reconstructed[i:i+patch_size, j:j+patch_size, :] += patch
                 weight[i:i+patch_size, j:j+patch_size, :] += 1.0
 
-            # Evitar división por cero
+            # Avoid division by zero
             reconstructed = np.divide(
                 reconstructed, 
                 weight, 
@@ -182,7 +165,7 @@ class SRCNNModel:
                 where=weight!=0
             )
             
-            # Recortar al tamaño original
+            # Crop back to the original size
             reconstructed = reconstructed[:h_orig, :w_orig, :]
             
             return np.clip(reconstructed, 0, 1)
@@ -190,61 +173,18 @@ class SRCNNModel:
         # Upscale LR to expected HR size
         img_lr_up = cv2.resize(lr_img, (hr_w, hr_h), interpolation=interpolation)
 
-        # Agregar padding
-        padded_img, original_shape = add_padding(img_lr_up, patch_size, stride)
+        # Pad with the shared helper so this grid matches the training one
+        original_shape = img_lr_up.shape[:2]
+        padded_img = add_padding(img_lr_up, patch_size, stride)
 
-        # Extraer patches
+        # Extract patches
         patches, positions = extract_patches_from_image(padded_img, patch_size, stride)
         patches = np.array(patches)
 
-        # Predict (measure only the model inference time & GPU memory)
-        def _read_gpu_info(device="GPU:0"):
-            try:
-                return tf.config.experimental.get_memory_info(device)
-            except Exception:
-                return None
-
-        gpu_begin = _read_gpu_info()
-        t0 = time.perf_counter()
-
         preds = self.model.predict(patches, batch_size=16, verbose=0)
 
-        elapsed = time.perf_counter() - t0
-        gpu_end = _read_gpu_info()
-
-        # Build metrics dict (MB for memory)
-        def _mb(x):
-            return None if x is None else float(x) / (1024.0 * 1024.0)
-
-        cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
-        cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
-        peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
-        peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
-
-        # Approximate mean GPU memory usage as the average of begin and end 'current' values
-        if cur_begin is not None and cur_end is not None:
-            mean_current_bytes = (cur_begin + cur_end) / 2.0
-            gpu_mean_current_mb = _mb(mean_current_bytes)
-        else:
-            gpu_mean_current_mb = _mb(cur_end) if cur_end is not None else None
-
-        # Get peak GPU memory usage during inference
-        gpu_peak_mb = None
-        if peak_begin is not None and peak_end is not None:
-            gpu_peak_mb = _mb(max(peak_begin, peak_end))
-        elif peak_end is not None:
-            gpu_peak_mb = _mb(peak_end)
-
-        inference_metrics = {
-            "time_sec": float(elapsed),
-            "gpu_mean_current_mb": gpu_mean_current_mb,
-            "gpu_peak_mb": gpu_peak_mb,
-        }
-
         # Reconstruct
-        sr_img = reconstruct_from_patches(preds, positions, padded_img.shape, original_shape, patch_size)
-
-        return sr_img, inference_metrics
+        return reconstruct_from_patches(preds, positions, padded_img.shape, original_shape, patch_size)
 
     def save(self, directory, timestamp):
         """Saves the model to a .h5 file with a timestamp."""

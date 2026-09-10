@@ -1,6 +1,4 @@
 import os
-import sys
-import time
 
 import numpy as np
 import tensorflow as tf
@@ -23,9 +21,17 @@ from keras.layers import (
 )
 from keras.backend import eval, mean, square, binary_crossentropy
 
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
-
-from SRModels.deep_learning_models.callbacks import EpochTimeTracker, EpochMemoryTracker
+from srlib.progress import format_duration
+from srlib.constants import (
+    ESRGAN_GROWTH_CHANNELS,
+    ESRGAN_LOSS_WEIGHTS,
+    ESRGAN_PATCH_SIZE,
+    ESRGAN_RRDB_BLOCKS,
+    ESRGAN_STRIDE,
+    ESRGAN_SCALE_FACTOR,
+)
+from srlib.dataset.loading import add_padding
+from srlib.deep_learning.callbacks import EpochMemoryTracker, EpochTimeTracker
 
 class SelfAttention(Layer):
     """
@@ -89,9 +95,8 @@ class ESRGAN:
     def __init__(self):
         """
         Initialize ESRGAN model.
-        
-        Args:
-            num_rrdb_blocks: Number of Residual-in-Residual Dense Blocks
+
+        The networks are left unbuilt; setup_model creates or loads them.
         """
         
         # Initialize models
@@ -107,9 +112,9 @@ class ESRGAN:
         
     def setup_model(
             self, 
-            scale_factor=2, 
-            growth_channels=32, 
-            num_rrdb_blocks=23, 
+            scale_factor=ESRGAN_SCALE_FACTOR, 
+            growth_channels=ESRGAN_GROWTH_CHANNELS, 
+            num_rrdb_blocks=ESRGAN_RRDB_BLOCKS, 
             input_shape=(None, None, 3),
             output_shape=(None, None, 3),
             from_trained=False, 
@@ -120,10 +125,13 @@ class ESRGAN:
         
         Args:
             scale_factor: Upscaling factor (2, 4, or 8)
-            growth_channels: Number of growth channels in dense blocks
-            lr_size: Low resolution image size
-            hr_size: High resolution image size (calculated if None)
-            channels: Number of image channels
+            growth_channels: Growth channels of the dense blocks. Defaults to
+                the value declared in constants, which keeps the generator at
+                the capacity of EDSR.
+            num_rrdb_blocks: Number of Residual-in-Residual Dense Blocks,
+                declared alongside growth_channels for the same reason.
+            input_shape: Shape of the low-resolution input
+            output_shape: Shape of the high-resolution output
             from_trained: If True, load pretrained models
             generator_pretrained_path: Path to pretrained generator model
             discriminator_pretrained_path: Path to pretrained discriminator model
@@ -163,14 +171,11 @@ class ESRGAN:
         
     def _compile_models(self):
         """
-        Compile the models with optimizers.
-        
-        Args:
-            g_lr: Generator learning rate
-            d_lr: Discriminator learning rate
-            
-            beta_1: Beta1 parameter for Adam optimizer
-            beta_2: Beta2 parameter for Adam optimizer
+        Compile the generator and the discriminator with their optimizers.
+
+        Both use Adam over an exponentially decaying rate. The discriminator
+        starts an order of magnitude lower than the generator so that it does
+        not overpower it early in training.
         """
         
         self.g_optimizer = Adam(
@@ -459,18 +464,62 @@ class ESRGAN:
         return mean(binary_crossentropy(y_true, y_pred))
     
     def _spectral_loss(self, hr_real, hr_fake):
-        """Spectral (Fourier) loss for texture preservation."""
-        
-        # Compute FFT2 for each image in the batch
-        hr_real_fft = tf.signal.fft2d(tf.cast(hr_real, tf.complex64))
-        hr_fake_fft = tf.signal.fft2d(tf.cast(hr_fake, tf.complex64))
-        
-        # Use magnitude (abs) for comparison
-        real_mag = tf.abs(hr_real_fft)
-        fake_mag = tf.abs(hr_fake_fft)
-        
-        # L1 loss between magnitude spectra
-        return tf.reduce_mean(tf.abs(real_mag - fake_mag))
+        """
+        Spectral (Fourier) L1 loss for texture preservation.
+
+        ``tf.signal.fft2d`` transforms the two innermost dimensions, so the
+        NHWC tensors are transposed to NCHW for the transform to run over
+        (height, width) instead of (width, channel).
+
+        The magnitude is divided by ``sqrt(H * W)``, the unitary convention,
+        because ``fft2d`` is unnormalised and its output would otherwise
+        grow with the patch size and dominate the other loss terms.
+
+        Returns:
+            Scalar L1 distance between the two magnitude spectra.
+        """
+
+        real_nchw = tf.transpose(hr_real, [0, 3, 1, 2])
+        fake_nchw = tf.transpose(hr_fake, [0, 3, 1, 2])
+
+        real_mag = tf.abs(tf.signal.fft2d(tf.cast(real_nchw, tf.complex64)))
+        fake_mag = tf.abs(tf.signal.fft2d(tf.cast(fake_nchw, tf.complex64)))
+
+        shape = tf.shape(hr_real)
+        norm = tf.sqrt(tf.cast(shape[1] * shape[2], tf.float32))
+
+        return tf.reduce_mean(tf.abs(real_mag - fake_mag)) / norm
+
+    def _generator_loss(self, hr_real, hr_fake, d_fake):
+        """
+        Combine the four generator terms with their configured weights.
+
+        Shared by training, validation and evaluation so that the three
+        report the same quantity.
+
+        Args:
+            hr_real: Reference high-resolution images
+            hr_fake: Generated high-resolution images
+            d_fake: Discriminator output for the generated images
+
+        Returns:
+            tuple: (total_loss, components) with components keyed as in
+                ESRGAN_LOSS_WEIGHTS.
+        """
+
+        components = {
+            "adversarial": self._adversarial_loss(tf.ones_like(d_fake), d_fake),
+            "perceptual": self._perceptual_loss(hr_real, hr_fake),
+            "pixel": self._pixel_loss(hr_real, hr_fake),
+            "spectral": self._spectral_loss(hr_real, hr_fake),
+        }
+        total = tf.add_n([
+            ESRGAN_LOSS_WEIGHTS[name] * value
+            for name, value in components.items()
+        ])
+
+        return total, components
+
     
     def _train_step(self, lr_images, hr_images):
         """
@@ -510,18 +559,7 @@ class ESRGAN:
             # Discriminator prediction for fake images
             d_fake = self.discriminator(hr_fake, training=True)
             
-            # Generator losses
-            g_adversarial_loss = self._adversarial_loss(tf.ones_like(d_fake), d_fake)
-            g_perceptual_loss = self._perceptual_loss(hr_images, hr_fake)
-            g_pixel_loss = self._pixel_loss(hr_images, hr_fake)
-            g_spectral_loss = self._spectral_loss(hr_images, hr_fake)
-            
-            # Combined generator loss
-            g_loss = (
-                g_adversarial_loss 
-                + 1.0 * g_perceptual_loss 
-                + 100.0 * g_pixel_loss 
-                + 1.0 * g_spectral_loss)
+            g_loss, _ = self._generator_loss(hr_images, hr_fake, d_fake)
         
         # Update generator
         g_grads = g_tape.gradient(g_loss, self.generator.trainable_variables)
@@ -549,32 +587,38 @@ class ESRGAN:
         """
         Train the ESRGAN model and optionally save a 5x5 SR preview grid each epoch.
 
-        Formas de entrada:
-        - Proporcionar (X_train, Y_train) y opcionalmente (X_val, Y_val)
-        - O proporcionar directamente un train_dataset (tf.data.Dataset) ya preparado
+        Input forms:
+        - Provide (X_train, Y_train) and optionally (X_val, Y_val)
+        - Or provide an already prepared train_dataset (tf.data.Dataset)
 
-        Parámetros:
-        X_train, Y_train: ndarrays en rango [0,1]
-        train_dataset: tf.data.Dataset que produce (lr, hr) en [0,1] o [-1,1]
-        steps_per_epoch: obligatorio si la fuente es infinita (repeat)
-        normalize: si True convierte batches de [0,1] a [-1,1]
-        save_dir: si se proporciona, guarda al final de cada época una cuadrícula 5x5
-          con salidas del generador para monitorizar el progreso
+        Parameters:
+        X_train, Y_train: ndarrays in the [0,1] range
+        train_dataset: tf.data.Dataset yielding (lr, hr) in [0,1] or [-1,1]
+        steps_per_epoch: required when the source is infinite (repeat)
+        normalize: when True, converts batches from [0,1] to [-1,1]
+        save_dir: when provided, saves a 5x5 grid of generator outputs at the
+          end of every epoch so progress can be monitored
+
+        Returns:
+        (history, time_tracker, memory_tracker), where history maps each
+        metric to one value per epoch: the mean over that epoch for the
+        training metrics and the validation mean for the val_ prefixed ones.
+        The val_ lists stay empty when no validation source is given.
         """
-        # Validaciones básicas
+        # Basic validation
         if train_dataset is None and (X_train is None or Y_train is None):
-            raise ValueError("Debe aportar (X_train,Y_train) o un train_dataset")
+            raise ValueError("Provide (X_train, Y_train) or a train_dataset")
 
-        # Info dispositivo
+        # Device info
         devices = tf.config.list_physical_devices('GPU')
         if devices:
             print("Training on GPU:", [d.name for d in devices])
         else:
             print("Training on CPU")
 
-        # Construcción del dataset de entrenamiento
+        # Building the training dataset
         if train_dataset is None:
-            # Dataset desde arrays
+            # Dataset from arrays
             train_dataset = (
                 tf.data.Dataset
                 .from_tensor_slices((X_train, Y_train))
@@ -585,19 +629,20 @@ class ESRGAN:
             if steps_per_epoch is None:
                 steps_per_epoch = int(np.ceil(len(X_train)/batch_size))
         else:
-            # Dataset externo: debe proveer batching o lo añadimos si no.
-            # Para mantener consistencia, forzamos repeat() aquí.
-            # No alteramos estructura si ya está batched (supuesto del usuario).
+            # External dataset: it must provide batching, otherwise we add it.
+            # repeat() is forced here for consistency.
+            # The structure is left untouched if it is already batched
+            # (assumed to be the caller's responsibility).
             train_dataset = train_dataset.repeat()
             if steps_per_epoch is None:
-                raise ValueError("Debe indicar steps_per_epoch cuando aporta un dataset externo")
+                raise ValueError("steps_per_epoch is required when an external dataset is provided")
 
-        # Normalización a [-1,1] si procede
+        # Normalisation to [-1,1] where applicable
         if normalize:
             train_dataset = train_dataset.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE)
         train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
 
-        # Dataset de validación
+        # Validation dataset
         val_data_struct = None
         if val_dataset is not None:
             val_data_struct = val_dataset
@@ -609,13 +654,13 @@ class ESRGAN:
         if val_data_struct is not None and normalize:
             val_data_struct = val_data_struct.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
 
-        # Preparación de guardado de previews
+        # Preview saving setup
         if save_dir is not None:
             os.makedirs(save_dir, exist_ok=True)
 
-        # Cache para un batch fijo de previsualización (consistente entre épocas)
+        # Cache holding a fixed preview batch, so it stays the same across epochs
         preview_lr_cache = None
-        preview_cache_is_normalized = False  # True si proviene del dataset ya en [-1,1]
+        preview_cache_is_normalized = False  # True when it comes from a dataset already in [-1,1]
 
         def _prepare_preview_batch():
             nonlocal preview_lr_cache, preview_cache_is_normalized
@@ -639,7 +684,7 @@ class ESRGAN:
                     batch = lr_np[:min(n_max, lr_np.shape[0])]
                     is_norm = True if normalize else False
                 if batch is None:
-                    raise RuntimeError("No se pudo obtener un batch de previsualización para guardar imágenes.")
+                    raise RuntimeError("Could not obtain a preview batch to save images.")
 
             preview_lr_cache = batch.astype(np.float32)
             preview_cache_is_normalized = is_norm
@@ -661,7 +706,7 @@ class ESRGAN:
             
             sr = (sr + 1.0) / 2.0
 
-            # Construir grid 5x5
+            # Build the 5x5 grid
             n = min(25, sr.shape[0])
             rows, cols = 5, 5
             h, w, ch = sr.shape[1], sr.shape[2], sr.shape[3]
@@ -672,7 +717,7 @@ class ESRGAN:
                 tile = _to_uint8(sr[idx])
                 grid[r*h:(r+1)*h, cidx*w:(cidx+1)*w] = tile
 
-            # Guardar PNG
+            # Save as PNG
             png = tf.image.encode_png(grid)
             out_path = os.path.join(save_dir, f"epoch_{epoch_idx:03d}_sr_grid.png")
             tf.io.write_file(out_path, png)
@@ -681,7 +726,13 @@ class ESRGAN:
         time_tracker = EpochTimeTracker()
         memory_tracker = EpochMemoryTracker(track_gpu=True, gpu_device="GPU:0")
 
-        # Bucle de entrenamiento
+        # One entry per epoch, so that history[key][-1] is the mean over the
+        # last epoch and means the same as it does in a keras History.
+        train_keys = ("g_loss", "d_loss", "psnr", "ssim", "g_lr", "d_lr")
+        val_keys = ("val_g_loss", "val_psnr", "val_ssim")
+        history = {key: [] for key in train_keys + val_keys}
+
+        # Training loop
         for epoch in range(epochs):
             print(f"Epoch {epoch + 1}/{epochs}")
 
@@ -689,18 +740,9 @@ class ESRGAN:
                 time_tracker.begin_epoch()
             if memory_tracker is not None:
                 memory_tracker.begin_epoch()
-            
-            epoch_losses = {
-                "g_loss": [],
-                "val_g_loss": [],
-                "d_loss": [],
-                "psnr": [],
-                "val_psnr": [],
-                "ssim": [], 
-                "val_ssim": [],
-                "g_lr": [],
-                "d_lr": []
-            }
+
+            # Per-step accumulator, reset on every epoch.
+            epoch_losses = {key: [] for key in train_keys}
 
             # Iterate over training batches
             for step, (lr_batch, hr_batch) in enumerate(train_dataset.take(steps_per_epoch)):
@@ -720,32 +762,36 @@ class ESRGAN:
                 epoch_losses["g_lr"].append(float(self.g_optimizer._decayed_lr(tf.float32).numpy()))
                 epoch_losses["d_lr"].append(float(self.d_optimizer._decayed_lr(tf.float32).numpy()))
 
+                if memory_tracker is not None:
+                    memory_tracker.sample_step()
+
                 if (step+1) % 10 == 0 or (step+1) == steps_per_epoch:
                     print(
                         f"  Step {step+1}/{steps_per_epoch} G_loss={epoch_losses['g_loss'][-1]:.4f} "
                         f"D_loss={epoch_losses['d_loss'][-1]:.4f} PSNR={epoch_losses['psnr'][-1]:.2f} "
                         f"SSIM={epoch_losses['ssim'][-1]:.4f}")
 
-            # Resumen epoch
-            avg_losses = {k: np.mean(v) for k,v in epoch_losses.items()}
+            # Epoch summary
+            for key, values in epoch_losses.items():
+                history[key].append(
+                    float(np.mean(values)) if values else float("nan")
+                )
             print(
-                f"- Epoch Summary - G_loss: {avg_losses['g_loss']:.4f}, D_loss: {avg_losses['d_loss']:.4f}, "
-                f"PSNR: {avg_losses['psnr']:.2f}, SSIM: {avg_losses['ssim']:.4f}")
+                f"- Epoch Summary - G_loss: {history['g_loss'][-1]:.4f}, "
+                f"D_loss: {history['d_loss'][-1]:.4f}, "
+                f"PSNR: {history['psnr'][-1]:.2f}, "
+                f"SSIM: {history['ssim'][-1]:.4f}")
 
-            # Validación si existe
+            # Validation, when available
             if val_data_struct is not None:
                 val_psnr, val_ssim, val_g_losses = [], [], []
                 for i, (lr_v, hr_v) in enumerate(val_data_struct.take(val_steps)):
                     # Forward pass
                     hr_fake_v = self.generator(lr_v, training=False)
 
-                    # Compute generator validation loss (same formula as training, no grads)
+                    # Generator validation loss, without gradients
                     d_fake_v = self.discriminator(hr_fake_v, training=False)
-                    g_adv_v = self._adversarial_loss(tf.ones_like(d_fake_v), d_fake_v)
-                    g_perc_v = self._perceptual_loss(hr_v, hr_fake_v)
-                    g_pix_v  = self._pixel_loss(hr_v, hr_fake_v)
-                    g_spec_v = self._spectral_loss(hr_v, hr_fake_v)
-                    g_loss_v = g_adv_v + 1.0 * g_perc_v + 100.0 * g_pix_v + 1.0 * g_spec_v
+                    g_loss_v, _ = self._generator_loss(hr_v, hr_fake_v, d_fake_v)
                     val_g_losses.append(float(g_loss_v.numpy()))
 
                     # PSNR / SSIM in [0,1]
@@ -758,15 +804,14 @@ class ESRGAN:
                 val_ssim_mean = float(np.mean(val_ssim)) if len(val_ssim) > 0 else float('nan')
                 val_g_loss_mean = float(np.mean(val_g_losses)) if len(val_g_losses) > 0 else float('nan')
 
-                # Registrar en epoch_losses
-                epoch_losses["val_psnr"] = val_psnr_mean
-                epoch_losses["val_ssim"] = val_ssim_mean
-                epoch_losses["val_g_loss"] = val_g_loss_mean
+                history["val_psnr"].append(val_psnr_mean)
+                history["val_ssim"].append(val_ssim_mean)
+                history["val_g_loss"].append(val_g_loss_mean)
 
                 print(
                     f"  Validation -> PSNR: {val_psnr_mean:.2f}, SSIM: {val_ssim_mean:.4f}, G_loss: {val_g_loss_mean:.4f}")
 
-            # Guardar previsualización (grid 5x5) al final de cada época
+            # Save the 5x5 preview grid at the end of every epoch
             _save_sr_grid(epoch + 1)
 
             self.trained = True
@@ -777,7 +822,17 @@ class ESRGAN:
             if time_tracker is not None:
                 time_tracker.end_epoch()
 
-        return epoch_losses, time_tracker, memory_tracker
+                # The custom loop has no Keras progress bar, so the epoch
+                # duration is the only cue of how long the run will take.
+                elapsed = time_tracker.epoch_times_sec[-1]
+                remaining = elapsed * (epochs - epoch - 1)
+                print(
+                    f"  Epoch time: {format_duration(elapsed)}"
+                    f"   (~{format_duration(remaining)} left)\n",
+                    flush=True,
+                )
+
+        return history, time_tracker, memory_tracker
     
     def evaluate(self, test_dataset):
         """
@@ -809,19 +864,8 @@ class ESRGAN:
             # Generate high-resolution images
             hr_generated = self.generator(lr_batch, training=False)
 
-            # Compute generator loss components (match training formula)
             d_fake = self.discriminator(hr_generated, training=False)
-            g_adversarial_loss = self._adversarial_loss(tf.ones_like(d_fake), d_fake)
-            g_perceptual_loss = self._perceptual_loss(hr_batch, hr_generated)
-            g_pixel_loss = self._pixel_loss(hr_batch, hr_generated)
-            g_spectral_loss = self._spectral_loss(hr_batch, hr_generated)
-
-            g_loss = (
-                g_adversarial_loss
-                + 1.0 * g_perceptual_loss
-                + 100.0 * g_pixel_loss
-                + 1.0 * g_spectral_loss
-            )
+            g_loss, _ = self._generator_loss(hr_batch, hr_generated, d_fake)
             total_g_loss += eval(g_loss)
 
             # Convert to [0, 1] range for PSNR and SSIM
@@ -855,13 +899,13 @@ class ESRGAN:
 
         return metrics
     
-    def super_resolve_image(self, lr_img, patch_size_lr=48, stride=24, batch_size=16):
+    def super_resolve_image(self, lr_img, patch_size_lr=ESRGAN_PATCH_SIZE, stride=ESRGAN_STRIDE, batch_size=16):
         """Patch-wise super-resolution using the ESRGAN generator.
         Follows SRCNN/EDSR flow: reflect padding, patch extraction, batch predict, overlap-averaged reconstruction.
         Accounts for ESRGAN's [-1,1] tanh output by normalizing inputs to [-1,1] and denormalizing outputs to [0,1].
 
         Args:
-            lr_img_path: Path to LR image file.
+            lr_img: LR RGB image array.
             patch_size_lr: LR patch size used for sliding window.
             stride: Stride for LR patch extraction.
             batch_size: Batch size for generator prediction.
@@ -880,15 +924,6 @@ class ESRGAN:
         scale = self.scale_factor
 
         # --- Helpers mirroring EDSR/SRCNN structure ---
-        def add_padding(image, patch_size, stride):
-            h, w, c = image.shape
-            pad_h = (patch_size - (h % stride)) % stride if h % stride != 0 else 0
-            pad_w = (patch_size - (w % stride)) % stride if w % stride != 0 else 0
-            pad_h = max(pad_h, patch_size - stride)
-            pad_w = max(pad_w, patch_size - stride)
-            padded = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
-            return padded, (h, w)
-
         def extract_lr_patches(img, patch_size, stride):
             h, w, _ = img.shape
             patches, positions = [], []
@@ -920,63 +955,26 @@ class ESRGAN:
             out_h, out_w = h_lr_orig * scale, w_lr_orig * scale
             return np.clip(recon[:out_h, :out_w, :], 0.0, 1.0)
 
-        # Pad LR image
-        lr_padded, lr_orig_shape = add_padding(lr_img, patch_size_lr, stride)
+        # Pad LR image with the shared helper so this grid matches training
+        lr_orig_shape = lr_img.shape[:2]
+        lr_padded = add_padding(lr_img, patch_size_lr, stride)
 
         # Extract LR patches and normalize to [-1,1]
         lr_patches, positions = extract_lr_patches(lr_padded, patch_size_lr, stride)
 
         lr_patches_norm = (lr_patches * 2.0) - 1.0
 
-        # --- Predict HR patches in batch (measure time and GPU memory around predict) ---
-        def _read_gpu_info(device="GPU:0"):
-            try:
-                return tf.config.experimental.get_memory_info(device)
-            except Exception:
-                return None
-
-        gpu_begin = _read_gpu_info()
-        t0 = time.perf_counter()
-
-        hr_patches = self.generator.predict(lr_patches_norm, batch_size=batch_size, verbose=0)
-
-        elapsed = time.perf_counter() - t0
-        gpu_end = _read_gpu_info()
+        # --- Predict HR patches in batch ---
+        hr_patches = self.generator.predict(
+            lr_patches_norm, batch_size=batch_size, verbose=0
+        )
 
         hr_patches = (hr_patches + 1.0) / 2.0  # to [0,1]
 
-        def _mb(x):
-            return None if x is None else float(x) / (1024.0 * 1024.0)
-
-        cur_begin = gpu_begin.get("current") if isinstance(gpu_begin, dict) else None
-        cur_end = gpu_end.get("current") if isinstance(gpu_end, dict) else None
-        peak_begin = gpu_begin.get("peak") if isinstance(gpu_begin, dict) else None
-        peak_end = gpu_end.get("peak") if isinstance(gpu_end, dict) else None
-
-        if cur_begin is not None and cur_end is not None:
-            mean_current_bytes = (cur_begin + cur_end) / 2.0
-            gpu_mean_current_mb = _mb(mean_current_bytes)
-        else:
-            gpu_mean_current_mb = _mb(cur_end) if cur_end is not None else None
-
-        gpu_peak_mb = None
-        if peak_begin is not None and peak_end is not None:
-            gpu_peak_mb = _mb(max(peak_begin, peak_end))
-        elif peak_end is not None:
-            gpu_peak_mb = _mb(peak_end)
-
-        inference_metrics = {
-            "time_sec": float(elapsed),
-            "gpu_mean_current_mb": gpu_mean_current_mb,
-            "gpu_peak_mb": gpu_peak_mb,
-        }
-
         # Reconstruct HR image and crop to target size
-        sr_img = reconstruct_from_hr_patches(
+        return reconstruct_from_hr_patches(
             hr_patches, positions, lr_padded.shape, lr_orig_shape, patch_size_lr, scale
         )
-
-        return sr_img, inference_metrics
     
     def save(self, directory, timestamp):
         """Save the trained model with a timestamp in the specified directory."""

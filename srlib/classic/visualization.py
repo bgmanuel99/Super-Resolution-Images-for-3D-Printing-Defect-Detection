@@ -1,5 +1,3 @@
-import os
-import sys
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,9 +6,9 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from skimage.metrics import structural_similarity as ssim
 
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../../")))
-
-from SRModels.classic_super_resolution_algorithms.profiling_methods import *
+from srlib.classic.profiling import (
+    rank_algorithms,
+)
 
 def plot_time_memory_panels(metric_summary, algorithms_order, colors_map, main_title, outfile, figsize=(18, 9)):
     """
@@ -220,7 +218,7 @@ def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_d
       - figsize: tuple for figure size
       - view: (elev, azim) for 3D view
 
-    Returns: (fig, ax)
+    Returns nothing: the figure is shown and, if results_dir is given, saved.
     """
     # Prepare data
     x_time = [metric_summary[a]['time_mean'] for a in algorithms]
@@ -397,11 +395,8 @@ def plot_edge_metrics_grid(metric_summary, algorithms, colors, results_dir=None,
 
     Panels:
       [0] Gradient MSE Mean (lower is better)
-      [1] Edge Preservation Index (EPI) Mean (≈1 is ideal)
+      [1] Edge Preservation Index (EPI) Mean (~1 is ideal)
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from pathlib import Path
 
     grad_mse_mean = [metric_summary[a].get('grad_mse_mean', np.nan) for a in algorithms]
     epi_mean = [metric_summary[a].get('epi_mean', np.nan) for a in algorithms]
@@ -444,20 +439,18 @@ def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors,
     Display and save a 1x3 grid with mean values of:
       - HF Energy Ratio mean (relative)
       - KL Luma mean
-      - KL Color mean (may be NaN for grayscale-only methods)
+      - KL Color mean
     across algorithms.
+
+    All three panels cover every algorithm. The advanced four are applied
+    channel by channel like the interpolations, so their colour divergence
+    is defined and the ranking already weights it; hiding them here would
+    contradict the table drawn from the same summary.
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from pathlib import Path
 
     hf_ratio_mean = [metric_summary[a].get('hf_ratio_mean', np.nan) for a in algorithms]
     kl_luma_mean = [metric_summary[a].get('kl_luma_mean', np.nan) for a in algorithms]
-    # We'll draw KL Color only for interpolation methods (hide IBP, NLM, EGI, FREQ)
-    interp_set = {'bilinear', 'bicubic', 'area', 'lanczos'}
-    algorithms_color = [a for a in algorithms if a in interp_set]
-    kl_color_mean_full = {a: metric_summary[a].get('kl_color_mean', np.nan) for a in algorithms}
-    kl_color_mean_subset = [kl_color_mean_full[a] for a in algorithms_color]
+    kl_color_mean = [metric_summary[a].get('kl_color_mean', np.nan) for a in algorithms]
 
     def _bar(ax, data, title, fmt='{:.4g}'):
         x = np.arange(len(algorithms))
@@ -482,28 +475,7 @@ def plot_frequency_distribution_metrics_grid(metric_summary, algorithms, colors,
     fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
     _bar(axes[0], hf_ratio_mean, 'High-Frequency Energy Ratio Mean (relative)')
     _bar(axes[1], kl_luma_mean, 'KL Divergence (Luma) Mean') # Lower is better
-
-    # Third subplot: KL Color, only for interpolation methods
-    ax2 = axes[2]
-    x_sub = np.arange(len(algorithms_color))
-    bars = ax2.bar(x_sub, kl_color_mean_subset, color=[colors[a] for a in algorithms_color])
-    ax2.set_title('KL Divergence (Color) Mean') # Lower is better
-    ax2.set_xticks(x_sub)
-    ax2.set_xticklabels(algorithms_color, rotation=30, ha='right')
-    # Annotate with dynamic headroom similar to other bars
-    bottom, top = ax2.get_ylim()
-    span = top - bottom if np.isfinite(top - bottom) and (top - bottom) > 0 else 1.0
-    pad = 0.01 * span
-    ymax = -np.inf
-    for rect, val in zip(bars, kl_color_mean_subset):
-        if not np.isfinite(val):
-            continue
-        y = rect.get_height() + pad
-        ax2.text(rect.get_x() + rect.get_width()/2, y, f'{val:.4g}', ha='center', va='bottom', fontsize=8)
-        ymax = max(ymax, y)
-    if np.isfinite(ymax) and ymax > ax2.get_ylim()[1]:
-        bottom, _ = ax2.get_ylim()
-        ax2.set_ylim(top=ymax + max(0.02 * (ymax - bottom), 0.02))
+    _bar(axes[2], kl_color_mean, 'KL Divergence (Color) Mean') # Lower is better
 
     fig.suptitle('Frequency/Distribution Metrics: Mean Values')
     if results_dir is not None:
@@ -521,11 +493,6 @@ def plot_and_save_super_resolution_example(vis, ibp_example, nlm_example, egi_ex
     hr_egi_v, lr_egi_v, egi_v = egi_example
     hr_freq_v, freq_v = freq_example
 
-    def to_display(img):
-        if img.ndim == 2:
-            return img if img.dtype != np.float32 else np.clip(img, 0, 1)
-        return img
-
     images = [
         ('HR', hr_img_v),
         ('LR', lr_img_v),
@@ -534,7 +501,7 @@ def plot_and_save_super_resolution_example(vis, ibp_example, nlm_example, egi_ex
         ('Area', area_v),
         ('Lanczos', lanczos_v),
         ('IBP', ibp_v),
-        ('NLM', nlm_v if nlm_v.ndim == 3 else nlm_v),
+        ('NLM', nlm_v),
         ('EGI', egi_v),
         ('FREQ', freq_v),
     ]
@@ -560,16 +527,17 @@ def plot_and_save_ssim_similarity_maps(vis, ibp_example, nlm_example, egi_exampl
     hr_egi_v, lr_egi_v, egi_v = egi_example
     hr_freq_v, freq_v = freq_example
 
-    # Lista de pares (nombre, HR, SR) en el orden requerido
+    # List of (name, HR, SR) triples in the required order. The SSIM map is a
+    # spatial view, so every pair is compared on luminance.
     pairs = [
         ('Bilinear', to_gray(hr_img_v), to_gray(bilinear_v)),
         ('Bicubic',  to_gray(hr_img_v), to_gray(bicubic_v)),
         ('Area',     to_gray(hr_img_v), to_gray(area_v)),
         ('Lanczos',  to_gray(hr_img_v), to_gray(lanczos_v)),
-        ('IBP',      hr_g_v, ibp_v),
-        ('NLM',      hr_v, nlm_v if nlm_v.ndim == 2 else cv2.cvtColor(nlm_v, cv2.COLOR_RGB2GRAY)),
-        ('EGI',      hr_egi_v, egi_v),
-        ('FREQ',     hr_freq_v, freq_v),
+        ('IBP',      to_gray(hr_g_v), to_gray(ibp_v)),
+        ('NLM',      to_gray(hr_v), to_gray(nlm_v)),
+        ('EGI',      to_gray(hr_egi_v), to_gray(egi_v)),
+        ('FREQ',     to_gray(hr_freq_v), to_gray(freq_v)),
     ]
 
     ssim_maps = []
@@ -606,6 +574,9 @@ def show_algorithm_ranking(
       - Horizontal bar chart of aggregate scores (descending order).
       - Heatmap of per-metric normalized contributions (weight * normalized value)
         for each algorithm, using the same metrics selected by rank_algorithms.
+        A metric that rank_algorithms skipped is drawn grey rather than as a
+        zero contribution, since its weight was redistributed and not lost.
+        Row sums therefore approximate, but do not equal, the plotted score.
 
         Saving:
             - If results_dir is provided, saves the two-subplot panel to
@@ -671,22 +642,24 @@ def show_algorithm_ranking(
         # Use provided weights; default 0 for missing
         weights_used = {m: float(weights.get(m, 0.0)) for m in metrics_all}
 
-    # Build contributions matrix [alg, metric] = weight * normalized(metric)
-    contrib = np.zeros((len(alg_order), len(metrics_all)), dtype=float)
+    # Build contributions matrix [alg, metric] = weight * normalized(metric).
+    # A metric that rank_algorithms had to skip is left as NaN rather than 0:
+    # the ranking redistributes its weight over the remaining metrics, so
+    # drawing it as a zero contribution would show it as the worst possible
+    # value and reinstate the very penalty the redistribution removes.
+    contrib = np.full((len(alg_order), len(metrics_all)), np.nan, dtype=float)
     for j, m in enumerate(metrics_all):
         lo, hi = bounds[m]
         rng = hi - lo if (np.isfinite(hi) and np.isfinite(lo)) else np.nan
         for i, alg in enumerate(alg_order):
             val = _get_metric_value(metric_summary[alg], m)
             if not np.isfinite(val) or not np.isfinite(lo) or not np.isfinite(hi) or rng == 0:
-                norm = 0.0
+                continue
+            if m in max_set and m not in min_set:
+                norm = (val - lo) / (hi - lo)
             else:
-                if m in max_set and m not in min_set:
-                    norm = (val - lo) / (hi - lo)
-                else:
-                    norm = (hi - val) / (hi - lo)
-                norm = float(np.clip(norm, 0.0, 1.0))
-            contrib[i, j] = weights_used[m] * norm
+                norm = (hi - val) / (hi - lo)
+            contrib[i, j] = weights_used[m] * float(np.clip(norm, 0.0, 1.0))
 
     # Plot: scores bar + contributions heatmap
     fig, axes = plt.subplots(1, 2, figsize=(16, 6), constrained_layout=True, gridspec_kw={'width_ratios': [1, 1.6]})
@@ -712,12 +685,15 @@ def show_algorithm_ranking(
 
     # Right: heatmap of per-metric contributions
     ax1 = axes[1]
-    im = ax1.imshow(contrib, aspect='auto', cmap='magma')
+    cmap = plt.get_cmap('magma').copy()
+    cmap.set_bad('lightgrey')
+    im = ax1.imshow(np.ma.masked_invalid(contrib), aspect='auto', cmap=cmap)
     ax1.set_yticks(np.arange(len(alg_order)))
     ax1.set_yticklabels(alg_order)
     ax1.set_xticks(np.arange(len(metrics_all)))
     ax1.set_xticklabels(metrics_all, rotation=45, ha='right', fontsize=8)
-    ax1.set_title('Per-metric contribution (weight × normalized)')
+    ax1.set_title('Per-metric contribution (weight × normalized)\n'
+                  'grey = skipped, its weight goes to the other metrics')
     cbar = plt.colorbar(im, ax=ax1, fraction=0.046, pad=0.04)
     cbar.ax.set_ylabel('Contribution', rotation=90)
 

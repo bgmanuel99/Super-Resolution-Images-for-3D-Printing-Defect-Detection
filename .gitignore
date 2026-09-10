@@ -173,12 +173,26 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Heavy or regenerable artefacts: videos, figures, tables and trained weights.
+# All of them are rebuilt by re-running the notebooks, and a single VGG16
+# checkpoint is already past the size GitHub warns about.
 training_checkpoints/
 output/
 *.mp4
 *.png
 *.eps
 *.jpg
-*.h5
 *.csv
-*.pkl
+*.h5
+
+# The dataset itself: source videos and the HR/LR frames derived from them.
+# Both are rebuilt by notebooks/1_dataset_creation.ipynb from the degradation
+# log, so neither belongs in the repository.
+data/videos/
+data/images/
+
+# 'data/metadata/' and '*.pkl' are deliberately NOT excluded. They are small
+# and they are what makes the results interpretable: the degradation log, the
+# class labels map, the HR frame size and the '*_metrics.pkl' training curves
+# under 'models/'. Keeping them versioned is what allows any figure to be
+# redrawn without retraining.
