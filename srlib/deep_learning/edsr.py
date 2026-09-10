@@ -1,3 +1,4 @@
+import datetime
 import os
 
 import numpy as np
@@ -13,9 +14,22 @@ from keras.layers import (
     Activation
 )
 
+from srlib.progress import stage
+from srlib.constants import (
+    EDSR_PATCH_SIZE,
+    EDSR_SCALE_FACTOR,
+    EDSR_STRIDE,
+    TIMESTAMP_FORMAT,
+)
 from srlib.dataset.loading import add_padding
 from srlib.metrics import psnr, ssim
-from srlib.deep_learning.callbacks import EpochMemoryCallback, EpochTimeCallback
+from srlib.model_registry import prepare_run_directory, save_run_metrics
+from srlib.deep_learning.callbacks import (
+    EpochMemoryCallback,
+    EpochTimeCallback,
+    last_epoch_metrics,
+    profile_evaluation,
+)
 
 class EDSR:
     def __init__(self):
@@ -25,7 +39,7 @@ class EDSR:
 
     def setup_model(
             self, 
-            scale_factor=2, 
+            scale_factor=EDSR_SCALE_FACTOR, 
             channels=3, 
             num_res_blocks=16, 
             num_filters=64, 
@@ -250,7 +264,7 @@ class EDSR:
 
         return timestamp, run_dir, metrics
 
-    def super_resolve_image(self, lr_img, patch_size_lr=48, stride=24):
+    def super_resolve_image(self, lr_img, patch_size_lr=EDSR_PATCH_SIZE, stride=EDSR_STRIDE):
         """Patch-based SR similar in flow to SRCNN, but accepts an in-memory LR numpy array.
         Steps: add padding, extract LR patches, batch-predict HR patches, reconstruct with
         overlap averaging, and crop to original HR size. No interpolation is used."""

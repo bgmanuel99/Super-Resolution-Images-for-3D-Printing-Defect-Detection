@@ -1,3 +1,4 @@
+import datetime
 import os
 
 import numpy as np
@@ -18,12 +19,19 @@ from keras.layers import (
 # namespace; 'keras.utils.register_keras_serializable' does not exist here.
 from tensorflow.keras.utils import register_keras_serializable
 
+from srlib.progress import stage
+from srlib.constants import TIMESTAMP_FORMAT
 from srlib.dataset.loading import add_padding
 
-# The on-disk naming of a trained variant is owned by 'model_registry', which
-# is also what the defect detection pipeline uses to find these checkpoints
-# again. Importing it here keeps writer and reader on one convention.
-from srlib.model_registry import vgg16_variant_name
+# The on-disk naming and layout of a trained variant are owned by
+# 'model_registry', which is also what the defect detection pipeline uses to
+# find these checkpoints again. Importing it here keeps writer and reader on
+# one convention.
+from srlib.model_registry import (
+    prepare_run_directory,
+    save_run_metrics,
+    vgg16_variant_name,
+)
 
 # Registering the layer lets 'load_model' rebuild it from a saved '.h5'
 # without the caller having to pass 'custom_objects', so the inference

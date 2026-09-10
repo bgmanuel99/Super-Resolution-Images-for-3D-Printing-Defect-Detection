@@ -1,3 +1,4 @@
+import datetime
 import os
 
 import numpy as np
@@ -29,6 +30,7 @@ from srlib.constants import (
     ESRGAN_RRDB_BLOCKS,
     ESRGAN_STRIDE,
     ESRGAN_SCALE_FACTOR,
+    TIMESTAMP_FORMAT,
 )
 from srlib.dataset.loading import add_padding
 from srlib.model_registry import prepare_run_directory, save_run_metrics
