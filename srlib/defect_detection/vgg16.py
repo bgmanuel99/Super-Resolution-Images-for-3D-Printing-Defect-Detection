@@ -569,7 +569,7 @@ class FineTunedVGG16:
             img = np.clip(img, 0.0, 1.0)
 
         # Determine patch/input size
-        _, in_h, in_w, in_c = self.model.input_shape
+        _, in_h, in_w, _ = self.model.input_shape
         if patch_size is None:
             if in_h is None or in_w is None:
                 raise ValueError(

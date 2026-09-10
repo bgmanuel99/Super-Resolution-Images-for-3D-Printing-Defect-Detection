@@ -1,10 +1,8 @@
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from skimage.metrics import structural_similarity as ssim
 
 from srlib.classic.profiling import (
     rank_algorithms,
@@ -314,7 +312,7 @@ def plot_speed_quality_tradeoff_3d(metric_summary, algorithms, colors, results_d
                                    markerfacecolor='#777777', markersize=np.sqrt(ms), alpha=0.7, markeredgecolor='k'))
 
     legend1 = ax.legend(handles=color_handles, title='Algorithm', loc='upper left', bbox_to_anchor=(1.02, 1.0))
-    legend2 = ax.legend(handles=size_handles, title='Memory (mean, MB)', loc='upper left', bbox_to_anchor=(1.02, 0.55))
+    ax.legend(handles=size_handles, title='Memory (mean, MB)', loc='upper left', bbox_to_anchor=(1.02, 0.55))
     ax.add_artist(legend1)
 
     plt.show()
@@ -378,10 +376,10 @@ def plot_edge_metrics_grid(metric_summary, algorithms, colors, results_dir=None,
     
 def plot_and_save_super_resolution_example(vis, ibp_example, nlm_example, egi_example, freq_example, results_dir):
     hr_img_v, lr_img_v, bilinear_v, bicubic_v, area_v, lanczos_v = vis
-    hr_g_v, lr_g_v, ibp_v = ibp_example
-    hr_v, nlm_v = nlm_example
-    hr_egi_v, lr_egi_v, egi_v = egi_example
-    hr_freq_v, freq_v = freq_example
+    *_, ibp_v = ibp_example
+    *_, nlm_v = nlm_example
+    *_, egi_v = egi_example
+    *_, freq_v = freq_example
 
     images = [
         ('HR', hr_img_v),

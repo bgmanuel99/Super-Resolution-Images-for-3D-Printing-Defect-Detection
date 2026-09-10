@@ -793,7 +793,7 @@ class ESRGAN:
             # Validation, when available
             if val_data_struct is not None:
                 val_psnr, val_ssim, val_g_losses = [], [], []
-                for i, (lr_v, hr_v) in enumerate(val_data_struct.take(val_steps)):
+                for lr_v, hr_v in val_data_struct.take(val_steps):
                     # Forward pass
                     hr_fake_v = self.generator(lr_v, training=False)
 

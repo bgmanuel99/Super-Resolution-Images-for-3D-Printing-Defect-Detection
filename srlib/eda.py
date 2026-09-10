@@ -653,8 +653,6 @@ class EDAPipeline:
 
     Every figure lands under ``output_dir``:
 
-    - ``advanced_global_panel.png``: dataset-wide spectra, gradients, GLCM,
-      noise and saturation.
     - ``distributions.png``, ``paired_histograms.png`` and
       ``correlation_matrix.png``: per-metric views.
     - ``LPIPS_Scenarios/``: the best and worst pairs by LPIPS.
