@@ -78,7 +78,7 @@ class SRCNNModel:
             X_val,
             Y_val,
             batch_size=16,
-            epochs=50):
+            epochs=100):
         """Trains the model over the extracted patch pairs and callbacks."""
         
         if self.model is None:
@@ -91,8 +91,8 @@ class SRCNNModel:
             print("Training on CPU")
         
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-7, verbose=1),
+            EarlyStopping(monitor="val_loss", patience=12, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=6, min_lr=1e-7, verbose=1),
             EpochTimeCallback(),
             EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]

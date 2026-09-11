@@ -178,8 +178,8 @@ class EDSR:
             print("Training on CPU")
 
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-7, verbose=1),
+            EarlyStopping(monitor="val_loss", patience=15, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=8, min_lr=1e-7, verbose=1),
             EpochTimeCallback(),
             EpochMemoryCallback(track_gpu=True, gpu_device="GPU:0"),
         ]

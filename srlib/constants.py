@@ -57,7 +57,7 @@ DL_RESULTS_DIR = os.path.join(RESULTS_ROOT, "deep_learning")
 # the patch has to be large enough for that border not to dominate: at
 # 48 px it covers 31 % of the area, against 56 % at 24 px.
 SRCNN_PATCH_SIZE = 48
-SRCNN_STRIDE = 24
+SRCNN_STRIDE = 48
 
 SRCNN_UPSCALE_INTERPOLATION = cv2.INTER_CUBIC
 
@@ -66,7 +66,7 @@ SRCNN_UPSCALE_INTERPOLATION = cv2.INTER_CUBIC
 # receptive field of these networks spans tens of LR pixels, and a patch
 # smaller than it wastes their depth.
 EDSR_PATCH_SIZE = 48
-EDSR_STRIDE = 24
+EDSR_STRIDE = 48
 EDSR_SCALE_FACTOR = 2
 
 ESRGAN_PATCH_SIZE = 32
@@ -103,7 +103,7 @@ RANDOM_SEED = 42
 # the exact same image-level partition from the same seed. Diverging on
 # any of them silently breaks the disjointness between the pipeline test
 # set and the training set of every model it evaluates.
-DATASET_FRACTION = 0.5
+DATASET_FRACTION = 1.0
 TEST_SIZE = 0.1
 VAL_SIZE = 0.1
 
