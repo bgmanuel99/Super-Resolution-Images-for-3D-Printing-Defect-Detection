@@ -69,8 +69,12 @@ EDSR_PATCH_SIZE = 48
 EDSR_STRIDE = 48
 EDSR_SCALE_FACTOR = 2
 
-ESRGAN_PATCH_SIZE = 32
-ESRGAN_STRIDE = 32
+# The generator applies self-attention after upsampling, whose cost grows
+# with the square of the patch area. At 32 px the attention map alone took
+# a gigabyte per batch, so the LR patch is kept at 24 and the map at a
+# quarter of that.
+ESRGAN_PATCH_SIZE = 24
+ESRGAN_STRIDE = 24
 ESRGAN_SCALE_FACTOR = 2
 
 # ESRGAN trains in a custom loop, so it has no plateau callback to give

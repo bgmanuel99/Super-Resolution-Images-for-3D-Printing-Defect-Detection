@@ -17,6 +17,7 @@ from keras.layers import (
     Concatenate, 
     LeakyReLU, 
     GlobalAveragePooling2D, 
+    MaxPooling2D, 
     Dense, 
     Layer
 )
@@ -55,6 +56,12 @@ from srlib.deep_learning.callbacks import (
 class SelfAttention(Layer):
     """
     Self-Attention Layer for 2D feature maps.
+
+    The attention map is quadratic in the number of spatial positions, so
+    the key and value branches are pooled by two before it is formed, as
+    the SAGAN formulation does. Without that pooling the map is
+    ``[B, HW, HW]``: at the upsampled resolution of the generator that is
+    a gigabyte per batch, held twice over by the gradient tape.
     """
     
     def __init__(self, channels, **kwargs):
@@ -67,27 +74,40 @@ class SelfAttention(Layer):
         self.g = Conv2D(self.channels // 8, 1, padding='same', name=self.name + "_g")
         self.h = Conv2D(self.channels // 2, 1, padding='same', name=self.name + "_h")
         self.v = Conv2D(self.channels, 1, padding='same', name=self.name + "_v")
+        self.pool = MaxPooling2D(
+            pool_size=2, strides=2, padding='same', name=self.name + "_pool"
+        )
         
         super(SelfAttention, self).build(input_shape)
 
     def call(self, x):
-        f = self.f(x)  # [B, H, W, C//8]
-        g = self.g(x)  # [B, H, W, C//8]
-        h = self.h(x)  # [B, H, W, C//2]
+        f = self.f(x)  # key   [B, H, W, C//8]
+        g = self.g(x)  # query [B, H, W, C//8]
+        h = self.h(x)  # value [B, H, W, C//2]
 
-        shape_f = tf.shape(f)
-        shape_g = tf.shape(g)
-        shape_h = tf.shape(h)
+        # Only the key and the value are pooled. The query stays at full
+        # resolution, so every output position is still attended to; what
+        # shrinks is the set of positions it attends over.
+        f = self.pool(f)  # [B, H/2, W/2, C//8]
+        h = self.pool(h)  # [B, H/2, W/2, C//2]
 
-        f_flat = tf.reshape(f, [shape_f[0], -1, shape_f[-1]])  # [B, HW, C//8]
-        g_flat = tf.reshape(g, [shape_g[0], -1, shape_g[-1]])  # [B, HW, C//8]
-        h_flat = tf.reshape(h, [shape_h[0], -1, shape_h[-1]])  # [B, HW, C//2]
+        shape_x = tf.shape(x)
+        batch = shape_x[0]
 
-        s = tf.matmul(g_flat, f_flat, transpose_b=True)  # [B, HW, HW]
+        f_flat = tf.reshape(f, [batch, -1, self.channels // 8])  # [B, HW/4, C//8]
+        g_flat = tf.reshape(g, [batch, -1, self.channels // 8])  # [B, HW,   C//8]
+        h_flat = tf.reshape(h, [batch, -1, self.channels // 2])  # [B, HW/4, C//2]
+
+        s = tf.matmul(g_flat, f_flat, transpose_b=True)  # [B, HW, HW/4]
         beta = tf.nn.softmax(s, axis=-1)  # attention map
 
         o = tf.matmul(beta, h_flat)  # [B, HW, C//2]
-        o = tf.reshape(o, tf.shape(h))  # [B, H, W, C//2]
+
+        # Restored against the input, not against the pooled value, whose
+        # spatial size is now half of it.
+        o = tf.reshape(
+            o, [batch, shape_x[1], shape_x[2], self.channels // 2]
+        )
         o = self.v(o)  # [B, H, W, C]
 
         x = Add()([x, o])
