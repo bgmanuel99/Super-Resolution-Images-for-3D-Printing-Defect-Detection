@@ -1,5 +1,3 @@
-import glob
-import os
 from dataclasses import dataclass
 
 import cv2
@@ -11,7 +9,10 @@ from skimage.metrics import (
 from tqdm import tqdm
 
 from srlib.progress import stage
+from srlib.dataset.loading import select_dataset_basenames
 from srlib.constants import (
+    CLASS_LABELS_PATH,
+    DATASET_FRACTION,
     CLASSIC_ADVANCED_ALGORITHMS,
     CLASSIC_ALGORITHM_COLORS,
     CLASSIC_ALGORITHMS,
@@ -112,7 +113,9 @@ class ClassicSuperResolutionBenchmark:
             self,
             hr_root=HR_ROOT,
             lr_root=LR_ROOT,
+            class_map_path=CLASS_LABELS_PATH,
             example_index=CLASSIC_EXAMPLE_INDEX,
+            fraction=DATASET_FRACTION,
             ibp_iterations=IBP_ITERATIONS):
         """
         Parameters
@@ -120,16 +123,23 @@ class ClassicSuperResolutionBenchmark:
         hr_root, lr_root : str
             Roots of the HR and LR image trees. Pairs are matched by
             basename, so the defect subfolders line up.
+        class_map_path : str
+            Pickled ``{basename: class_id}`` mapping, used to stratify the
+            subsample.
         example_index : int
             Position in the sorted pair list whose outputs are kept for the
             qualitative figures.
+        fraction : float or None
+            Fraction of images to benchmark, shared with the model loaders.
         ibp_iterations : int
             Refinement steps of the iterative back-projection.
         """
 
         self.hr_root = hr_root
         self.lr_root = lr_root
+        self.class_map_path = class_map_path
         self.example_index = example_index
+        self.fraction = fraction
         self.ibp_iterations = ibp_iterations
         self._stats = self._empty_stats()
         self._examples = {}
@@ -144,10 +154,12 @@ class ClassicSuperResolutionBenchmark:
 
     def _list_pairs(self):
         """
-        List the LR/HR pairs present in both trees, in a stable order.
+        List the LR/HR pairs to benchmark, in a stable order.
 
-        Matching by basename rather than by relative path lets the images sit
-        in per-defect subfolders while still pairing correctly.
+        Resolved through the shared selector, so the algorithms are scored
+        on the same stratified fraction of images the models are trained
+        on. Benchmarking the full dataset while the models see half of it
+        would compare the two families over different populations.
 
         Returns
         -------
@@ -155,21 +167,12 @@ class ClassicSuperResolutionBenchmark:
             ``(basename, hr_path, lr_path)`` sorted by basename.
         """
 
-        def index(root):
-            paths = glob.glob(os.path.join(root, "**", "*.png"), recursive=True)
-            return {os.path.basename(p): p for p in sorted(paths)}
+        basenames, pairs, _ = select_dataset_basenames(
+            self.hr_root, self.lr_root, self.class_map_path,
+            fraction=self.fraction,
+        )
 
-        hr_paths = index(self.hr_root)
-        lr_paths = index(self.lr_root)
-
-        common = sorted(set(hr_paths) & set(lr_paths))
-        if not common:
-            raise ValueError(
-                "No matching HR/LR image pairs found under "
-                f"{self.hr_root} and {self.lr_root}."
-            )
-
-        return [(name, hr_paths[name], lr_paths[name]) for name in common]
+        return [(name, *pairs[name]) for name in basenames]
 
     @staticmethod
     def _read_rgb(path):
@@ -354,6 +357,7 @@ class ClassicSuperResolutionBenchmark:
                 f"Classic SR benchmark | {len(CLASSIC_ALGORITHMS)} algorithms "
                 f"x {len(pairs)} pairs") as step:
             step(f"algorithms {', '.join(CLASSIC_ALGORITHMS)}")
+            step(f"selection {len(pairs)} images at fraction {self.fraction}")
 
             for index, (_, hr_path, lr_path) in enumerate(
                     tqdm(pairs, desc="  pairs", unit="pair")):

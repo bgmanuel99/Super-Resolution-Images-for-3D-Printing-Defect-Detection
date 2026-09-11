@@ -30,10 +30,21 @@ from srlib.constants import (
     ESRGAN_RRDB_BLOCKS,
     ESRGAN_STRIDE,
     ESRGAN_SCALE_FACTOR,
+    ESRGAN_DISCRIMINATOR_LR,
+    ESRGAN_GENERATOR_LR,
+    ESRGAN_LR_DECAY_RATE,
+    ESRGAN_LR_DECAY_STEPS,
+    ESRGAN_PREVIEW_EVERY,
+    ESRGAN_PREVIEW_SUBDIR,
     TIMESTAMP_FORMAT,
 )
 from srlib.dataset.loading import add_padding
-from srlib.model_registry import prepare_run_directory, save_run_metrics
+from srlib.model_registry import (
+    collect_staged_previews,
+    prepare_run_directory,
+    save_run_metrics,
+    stage_preview_directory,
+)
 from srlib.deep_learning.callbacks import (
     EpochMemoryTracker,
     EpochTimeTracker,
@@ -188,9 +199,9 @@ class ESRGAN:
         
         self.g_optimizer = Adam(
             learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=1e-4,
-                decay_steps=10000,
-                decay_rate=0.5,
+                initial_learning_rate=ESRGAN_GENERATOR_LR,
+                decay_steps=ESRGAN_LR_DECAY_STEPS,
+                decay_rate=ESRGAN_LR_DECAY_RATE,
                 staircase=True
             ), 
             beta_1=0.9, 
@@ -198,9 +209,9 @@ class ESRGAN:
         )
         self.d_optimizer = Adam(
             learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=1e-5,
-                decay_steps=10000,
-                decay_rate=0.5,
+                initial_learning_rate=ESRGAN_DISCRIMINATOR_LR,
+                decay_steps=ESRGAN_LR_DECAY_STEPS,
+                decay_rate=ESRGAN_LR_DECAY_RATE,
                 staircase=True
             ), 
             beta_1=0.9, 
@@ -591,9 +602,10 @@ class ESRGAN:
         steps_per_epoch=None,
         val_steps=None,
         normalize=True,
-        save_dir=None):
+        save_dir=None,
+        preview_every=ESRGAN_PREVIEW_EVERY):
         """
-        Train the ESRGAN model and optionally save a 5x5 SR preview grid each epoch.
+        Train the ESRGAN model, saving 5x5 SR preview grids as it goes.
 
         Input forms:
         - Provide (X_train, Y_train) and optionally (X_val, Y_val)
@@ -604,8 +616,12 @@ class ESRGAN:
         train_dataset: tf.data.Dataset yielding (lr, hr) in [0,1] or [-1,1]
         steps_per_epoch: required when the source is infinite (repeat)
         normalize: when True, converts batches from [0,1] to [-1,1]
-        save_dir: when provided, saves a 5x5 grid of generator outputs at the
-          end of every epoch so progress can be monitored
+        save_dir: where the preview grids are written. Defaults to a staging
+          directory of this training session, which 'evaluate_and_save'
+          moves into the run directory. Pass an empty string to disable the
+          previews entirely.
+        preview_every: epochs between two grids. The first epoch is always
+          rendered, so the run starts from a visible baseline.
 
         Returns:
         (history, time_tracker, memory_tracker), where history maps each
@@ -662,8 +678,14 @@ class ESRGAN:
         if val_data_struct is not None and normalize:
             val_data_struct = val_data_struct.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
 
-        # Preview saving setup
-        if save_dir is not None:
+        # The run directory does not exist yet, so the grids are staged
+        # under this training session and moved once the model is saved.
+        self._preview_session = datetime.datetime.now().strftime(
+            TIMESTAMP_FORMAT
+        )
+        if save_dir is None:
+            save_dir = stage_preview_directory(self._preview_session)
+        elif save_dir:
             os.makedirs(save_dir, exist_ok=True)
 
         # Cache holding a fixed preview batch, so it stays the same across epochs
@@ -703,7 +725,7 @@ class ESRGAN:
             return (img * 255.0).round().astype(np.uint8)
 
         def _save_sr_grid(epoch_idx):
-            if save_dir is None:
+            if not save_dir:
                 return
             
             lr_preview, is_norm = _prepare_preview_batch()
@@ -819,8 +841,10 @@ class ESRGAN:
                 print(
                     f"  Validation -> PSNR: {val_psnr_mean:.2f}, SSIM: {val_ssim_mean:.4f}, G_loss: {val_g_loss_mean:.4f}")
 
-            # Save the 5x5 preview grid at the end of every epoch
-            _save_sr_grid(epoch + 1)
+            # First epoch as the baseline, then one grid every few epochs:
+            # what the previews are for is the trend, not every step.
+            if epoch == 0 or (epoch + 1) % preview_every == 0:
+                _save_sr_grid(epoch + 1)
 
             self.trained = True
 
@@ -966,6 +990,18 @@ class ESRGAN:
             run_dir = prepare_run_directory("ESRGAN", run_name)
             self.save(directory=run_dir, timestamp=timestamp)
             step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+
+            # Previews of sessions that were never saved travel with this
+            # run rather than being lost, tagged with the session that
+            # produced them.
+            moved = collect_staged_previews(run_dir)
+            if moved:
+                total = sum(moved.values())
+                step(f"previews   {total} grid(s) from {len(moved)} session(s) "
+                     f"-> {os.path.join(run_dir, ESRGAN_PREVIEW_SUBDIR)}")
+                for session, count in moved.items():
+                    own = " (this run)" if session == self._preview_session else ""
+                    step(f"             {session}: {count} grid(s){own}")
 
         return timestamp, run_dir, metrics
 

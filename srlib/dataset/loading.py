@@ -321,6 +321,50 @@ def subsample_stratified(
 
     return basenames[keep_idx], labels[keep_idx]
 
+def select_dataset_basenames(
+    hr_root,
+    lr_root,
+    class_map_path,
+    fraction=DATASET_FRACTION,
+    seed=RANDOM_SEED):
+    """
+    Index the pairs and keep the stratified fraction the models are fed.
+
+    The analyses that describe the dataset have to look at the same images
+    the models learn from. Reducing the fraction only on the training side
+    would leave the EDA and the classic benchmark characterising a dataset
+    that no model ever sees, and their conclusions would not transfer.
+
+    No train/val/test split happens here: neither the EDA nor the classic
+    algorithms learn anything, so they read the whole selected fraction.
+
+    Parameters
+    ----------
+    hr_root, lr_root : str
+        Roots of the HR and LR image trees.
+    class_map_path : str
+        Path to the pickled ``{basename: class_id}`` mapping, needed as the
+        stratification target.
+    fraction : float or None
+        Fraction of images to keep. None or >= 1.0 keeps them all.
+    seed : int
+        Random seed, shared with the model loaders.
+
+    Returns
+    -------
+    basenames : np.ndarray
+        Selected basenames, in their original sorted order.
+    pairs : dict
+        Mapping of basename to ``(hr_path, lr_path)`` for every indexed pair.
+    labels : np.ndarray
+        Class id per selected basename.
+    """
+
+    basenames, pairs, labels = index_image_pairs(hr_root, lr_root, class_map_path)
+    basenames, labels = subsample_stratified(basenames, labels, fraction, seed)
+
+    return basenames, pairs, labels
+
 def split_stratified(
     basenames,
     labels,

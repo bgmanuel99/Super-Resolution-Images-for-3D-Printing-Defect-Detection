@@ -1,9 +1,12 @@
 import os
 import pickle
 import re
+import shutil
 from datetime import datetime
 
 from srlib.constants import (
+    ESRGAN_PREVIEW_STAGING,
+    ESRGAN_PREVIEW_SUBDIR,
     MODEL_DEFAULT_SCALE_FACTORS,
     MODEL_FAMILY_ROOTS,
     MODELS,
@@ -73,6 +76,87 @@ def prepare_run_directory(model, run_name):
     os.makedirs(run_dir, exist_ok=True)
 
     return run_dir
+
+def stage_preview_directory(session):
+    """Create and return the staging directory of one training session.
+
+    ESRGAN writes its preview grids while training, before the run
+    directory exists, so they land here first keyed by the session that
+    produced them.
+
+    Parameters
+    ----------
+    session : str
+        Identifier of the training session, normally a timestamp.
+
+    Returns
+    -------
+    str
+        Path of the created staging directory.
+    """
+
+    path = os.path.join(ESRGAN_PREVIEW_STAGING, str(session))
+    os.makedirs(path, exist_ok=True)
+
+    return path
+
+def collect_staged_previews(run_dir, subdir=ESRGAN_PREVIEW_SUBDIR):
+    """Move every staged preview into a run directory.
+
+    A session whose model is never saved leaves its previews staged, so the
+    next run that does save carries them along. They keep their session
+    identifier in that case: attributing images to a run that did not
+    produce them is worse than an extra folder level. The usual case, one
+    staged session, is flattened straight into ``subdir``.
+
+    Parameters
+    ----------
+    run_dir : str
+        Run directory returned by ``prepare_run_directory``.
+    subdir : str
+        Folder inside the run the previews are moved into.
+
+    Returns
+    -------
+    dict
+        ``{session: moved_file_count}`` for every session that was moved.
+    """
+
+    if not os.path.isdir(ESRGAN_PREVIEW_STAGING):
+        return {}
+
+    sessions = sorted(
+        name for name in os.listdir(ESRGAN_PREVIEW_STAGING)
+        if os.path.isdir(os.path.join(ESRGAN_PREVIEW_STAGING, name))
+    )
+    if not sessions:
+        return {}
+
+    target_root = os.path.join(run_dir, subdir)
+    moved = {}
+
+    for session in sessions:
+        source = os.path.join(ESRGAN_PREVIEW_STAGING, session)
+        target = (
+            target_root if len(sessions) == 1
+            else os.path.join(target_root, session)
+        )
+        os.makedirs(target, exist_ok=True)
+
+        count = 0
+        for name in sorted(os.listdir(source)):
+            shutil.move(os.path.join(source, name), os.path.join(target, name))
+            count += 1
+
+        moved[session] = count
+        os.rmdir(source)
+
+    # Leaving an empty staging root behind would suggest there is something
+    # pending when there is not.
+    if not os.listdir(ESRGAN_PREVIEW_STAGING):
+        os.rmdir(ESRGAN_PREVIEW_STAGING)
+
+    return moved
 
 def save_run_metrics(run_dir, run_name, metrics):
     """Persist a run's metrics under the name ``model_artifacts`` expects.

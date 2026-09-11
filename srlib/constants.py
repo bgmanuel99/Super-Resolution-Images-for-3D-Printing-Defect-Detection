@@ -70,8 +70,33 @@ EDSR_STRIDE = 48
 EDSR_SCALE_FACTOR = 2
 
 ESRGAN_PATCH_SIZE = 32
-ESRGAN_STRIDE = 16
+ESRGAN_STRIDE = 32
 ESRGAN_SCALE_FACTOR = 2
+
+# ESRGAN trains in a custom loop, so it has no plateau callback to give
+# patience to. Its equivalent knob is the decay schedule: the rate halves
+# every DECAY_STEPS optimiser steps. At roughly a thousand steps per epoch,
+# 10000 steps halved it every nine epochs and left the generator frozen
+# long before the run ended, so the interval is set to span a few halvings
+# over the whole schedule instead of a dozen.
+# The discriminator starts an order of magnitude lower than the generator
+# so that it does not overpower it early in training.
+ESRGAN_GENERATOR_LR = 1e-4
+ESRGAN_DISCRIMINATOR_LR = 1e-5
+ESRGAN_LR_DECAY_STEPS = 30000
+ESRGAN_LR_DECAY_RATE = 0.5
+
+# How often the training loop renders a grid of generator outputs, so the
+# reconstructions can be followed over the run. Every epoch produced more
+# images than anyone reads and cost a forward pass each time.
+ESRGAN_PREVIEW_EVERY = 5
+
+# Previews are written here while training runs, because the run directory
+# is only created once the model is saved. They are moved into the run at
+# save time; a training that is never saved leaves them behind on purpose,
+# so an interrupted attempt can still be inspected.
+ESRGAN_PREVIEW_STAGING = os.path.join(MODELS_ROOT, "ESRGAN", "_staged_previews")
+ESRGAN_PREVIEW_SUBDIR = "grid_figures"
 
 VGG_PATCH_SIZE = 96
 VGG_STRIDE = 48
@@ -155,14 +180,17 @@ VGG16_SETUP_PARAMS = dict(
 # while the backbone stays frozen; only then are its last layers opened, at a
 # rate two orders of magnitude lower, so the ImageNet filters get refined
 # instead of overwritten by the gradients of a head that started at random.
-# Phase 2 is given more patience because it improves in smaller steps and a
-# patience of 3 would stop it before it settles.
+# Phase 2 is given more patience because it improves in smaller steps and
+# would otherwise stop before it settles. Both values leave room for the
+# plateau callback to halve the rate a few times before early stopping
+# fires, which is what a patience of 3 did not: the rate collapsed and the
+# run ended within a couple of epochs of each other.
 VGG16_FIT_PARAMS = dict(
     batch_size=32,
     head_epochs=150,
     finetune_epochs=150,
-    head_patience=3,
-    finetune_patience=5,
+    head_patience=10,
+    finetune_patience=15,
     finetune_learning_rate=1e-5,
     use_augmentation=True,
 )

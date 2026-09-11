@@ -298,7 +298,7 @@ class FineTunedVGG16:
             batch_size=32,
             epochs=50,
             use_augmentation=True,
-            patience=3):
+            patience=10):
         """
         Train the model as currently compiled, for a single phase.
 
@@ -322,7 +322,10 @@ class FineTunedVGG16:
             ReduceLROnPlateau(
                 monitor="val_loss",
                 factor=0.5,
-                patience=max(1, patience - 1),
+                # Half the early-stopping patience, so the rate can be
+                # halved a couple of times and the model given a chance to
+                # improve at the lower rate before the run is cut.
+                patience=max(1, patience // 2),
                 min_lr=1e-7,
                 verbose=1,
             ),
@@ -369,8 +372,8 @@ class FineTunedVGG16:
             batch_size=32,
             head_epochs=150,
             finetune_epochs=150,
-            head_patience=3,
-            finetune_patience=5,
+            head_patience=10,
+            finetune_patience=15,
             finetune_learning_rate=1e-5,
             train_last_n_layers=None,
             use_augmentation=True):

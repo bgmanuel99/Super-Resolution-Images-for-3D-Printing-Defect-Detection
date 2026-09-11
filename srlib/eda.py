@@ -16,12 +16,15 @@ from tqdm import tqdm
 
 from srlib.progress import stage
 from srlib.constants import (
+    CLASS_LABELS_PATH,
+    DATASET_FRACTION,
     DEGENERATE_PAIR_PSNR,
     EDA_RESULTS_DIR,
     HR_ROOT,
     LR_ROOT,
     SRCNN_UPSCALE_INTERPOLATION,
 )
+from srlib.dataset.loading import select_dataset_basenames
 
 class ImagePairLoader:
     """Separated I/O utilities for iterating and aligning LR/HR pairs."""
@@ -341,9 +344,20 @@ class MetricsAggregator:
     def collect(
         lr_dir,
         hr_dir,
+        basenames=None,
         upscale_interpolation=SRCNN_UPSCALE_INTERPOLATION,
     ):
         """Compute the metric row of every LR/HR pair.
+
+        Parameters
+        ----------
+        lr_dir, hr_dir : str
+            Roots of the LR and HR trees. Pairs are matched by relative path.
+        basenames : sequence of str, optional
+            Restrict the analysis to these image basenames. Defaults to
+            every pair found.
+        upscale_interpolation : int
+            OpenCV interpolation used to bring LR up to the HR frame size.
 
         Returns
         -------
@@ -353,6 +367,12 @@ class MetricsAggregator:
 
         rows = []
         pairs = list(ImagePairLoader.iter_pairs(lr_dir, hr_dir))
+        if basenames is not None:
+            # The selection is keyed by basename while the pairs are keyed by
+            # relative path, since the images live in per-defect subfolders.
+            allowed = set(basenames)
+            pairs = [p for p in pairs if os.path.basename(p[0]) in allowed]
+
         for lf, hf in tqdm(pairs, desc="Computing metrics", unit="img"):
             lr_img, hr_img = ImagePairLoader.load_and_align(
                 os.path.join(lr_dir, lf),
@@ -662,18 +682,27 @@ class EDAPipeline:
             self,
             lr_dir=LR_ROOT,
             hr_dir=HR_ROOT,
+            class_map_path=CLASS_LABELS_PATH,
             output_dir=EDA_RESULTS_DIR,
             top_k_examples=1,
+            fraction=DATASET_FRACTION,
             upscale_interpolation=SRCNN_UPSCALE_INTERPOLATION):
         """
         Parameters
         ----------
         lr_dir, hr_dir : str
             Roots of the LR and HR trees. Pairs are matched by relative path.
+        class_map_path : str
+            Pickled ``{basename: class_id}`` mapping, used to stratify the
+            subsample.
         output_dir : str
             Directory the figures are written to.
         top_k_examples : int
             How many best and worst LPIPS pairs to render individually.
+        fraction : float or None
+            Fraction of the dataset to analyse, shared with the model
+            loaders so that the analysis describes the images the models
+            are actually trained on.
         upscale_interpolation : int
             OpenCV interpolation used to bring LR up to the HR frame before
             comparing. Fixed for every image on purpose; see
@@ -682,8 +711,10 @@ class EDAPipeline:
 
         self.lr_dir = lr_dir
         self.hr_dir = hr_dir
+        self.class_map_path = class_map_path
         self.output_dir = output_dir
         self.top_k_examples = top_k_examples
+        self.fraction = fraction
         self.upscale_interpolation = upscale_interpolation
 
     def run(self):
@@ -698,8 +729,15 @@ class EDAPipeline:
         with stage("EDA | LR/HR pair analysis") as step:
             self._prepare_output_dirs()
 
+            basenames, _, labels = select_dataset_basenames(
+                self.hr_dir, self.lr_dir, self.class_map_path,
+                fraction=self.fraction,
+            )
+            step(f"selection {len(basenames)} images at fraction "
+                 f"{self.fraction}   classes {dict(zip(*np.unique(labels, return_counts=True)))}")
+
             step("computing per-pair metrics")
-            rows = self._collect_metrics()
+            rows = self._collect_metrics(basenames)
             df = StatsReporter.dataframe(rows)
             step(f"metrics   {len(df)} pairs x {len(df.columns) - 1} variables")
             self._report_degenerate_pairs(step, df)
@@ -733,12 +771,13 @@ class EDAPipeline:
         for directory in self._scenario_dirs():
             os.makedirs(directory, exist_ok=True)
 
-    def _collect_metrics(self):
-        """Compute the per-pair metrics."""
+    def _collect_metrics(self, basenames):
+        """Compute the per-pair metrics of the selected images."""
 
         return MetricsAggregator.collect(
             self.lr_dir,
             self.hr_dir,
+            basenames=basenames,
             upscale_interpolation=self.upscale_interpolation,
         )
 
