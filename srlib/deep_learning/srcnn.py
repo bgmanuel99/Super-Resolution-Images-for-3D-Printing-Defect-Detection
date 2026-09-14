@@ -18,7 +18,12 @@ from srlib.constants import (
 )
 from srlib.dataset.loading import add_padding
 from srlib.metrics import psnr, ssim
-from srlib.model_registry import prepare_run_directory, save_run_metrics
+from srlib.model_registry import (
+    prepare_run_directory,
+    save_epoch_log,
+    save_model_summary,
+    save_run_metrics,
+)
 from srlib.progress import stage
 from srlib.deep_learning.callbacks import (
     EpochMemoryCallback,
@@ -183,6 +188,8 @@ class SRCNNModel:
             step(f"frame size -> {dimensions_path}")
 
             step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+            step(f"summary    -> {save_model_summary(run_dir, run_name, self.model)}")
+            step(f"epochs     -> {save_epoch_log(run_dir, run_name, history.history)}")
 
         return timestamp, run_dir, metrics
     

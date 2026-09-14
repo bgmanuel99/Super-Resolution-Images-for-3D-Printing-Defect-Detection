@@ -52,7 +52,33 @@ def vgg16_variant_name(source, timestamp):
 
     return f"VGG16_{source.upper()}_{timestamp}"
 
-def prepare_run_directory(model, run_name):
+def vgg16_run_name(timestamp):
+    """
+    Build the name of the folder holding both variants of one VGG16 run.
+
+    The notebook trains the HR and the LR classifier in the same pass and
+    they are only comparable as a pair, so the two variant folders live
+    under a single run folder instead of side by side at the family root.
+    The pipeline resolves a VGG16 run by this one name and then reaches
+    both checkpoints inside it.
+
+    Parameters
+    ----------
+    timestamp : str
+        Training timestamp, formatted as ``%Y%m%d_%H%M%S``.
+
+    Returns
+    -------
+    str
+        Name of the form ``VGG16_20260828_181500``.
+    """
+
+    if not timestamp or not isinstance(timestamp, str):
+        raise ValueError("timestamp must be a non-empty string.")
+
+    return f"VGG16_{timestamp}"
+
+def prepare_run_directory(model, run_name, parent=None):
     """Create and return the directory a training run writes into.
 
     Owned by this module because it is the same path ``model_artifacts``
@@ -65,6 +91,9 @@ def prepare_run_directory(model, run_name):
         Model family, one of ``MODELS``.
     run_name : str
         Directory name, e.g. ``SRCNN_20260828_181500``.
+    parent : str, optional
+        Folder inserted between the family root and ``run_name``. VGG16
+        uses it to group its two variants under one run.
 
     Returns
     -------
@@ -72,10 +101,157 @@ def prepare_run_directory(model, run_name):
         Absolute path of the created run directory.
     """
 
-    run_dir = os.path.join(MODEL_FAMILY_ROOTS[_validate_model(model)], run_name)
+    root = MODEL_FAMILY_ROOTS[_validate_model(model)]
+    run_dir = os.path.join(root, parent, run_name) if parent else os.path.join(
+        root, run_name
+    )
     os.makedirs(run_dir, exist_ok=True)
 
     return run_dir
+
+def save_model_summary(run_dir, run_name, models, line_length=110):
+    """Write the architecture of every network of a run to a text file.
+
+    Saved next to the weights because the weights alone do not say what
+    shape they belong to: reading a checkpoint back needs the same code
+    that built it, and this file is what lets a run be understood without
+    re-running the notebook that produced it.
+
+    Parameters
+    ----------
+    run_dir : str
+        Directory returned by ``prepare_run_directory``.
+    run_name : str
+        Same name used for the directory, used as the filename stem.
+    models : keras.Model or dict
+        A single network, or ``{label: network}`` when the run trained
+        more than one, as ESRGAN does with its generator and discriminator.
+    line_length : int
+        Width the summary is formatted to. Fixed rather than left to Keras
+        so the file does not change with the terminal it was written from.
+
+    Returns
+    -------
+    str
+        Path of the written file.
+    """
+
+    if not isinstance(models, dict):
+        models = {None: models}
+
+    lines = []
+    for label, model in models.items():
+        if label is not None:
+            lines += ["=" * line_length, f" {label}", "=" * line_length]
+        model.summary(print_fn=lines.append, line_length=line_length)
+        lines.append("")
+
+    return _write_text(run_dir, f"{run_name}_summary.txt", lines)
+
+def _format_metric(value):
+    """Render one metric the way the Keras progress line does."""
+
+    if value is None:
+        return "None"
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+    if value != value:
+        return "nan"
+    if value == 0.0 or 1e-3 <= abs(value) < 1e5:
+        return f"{value:.4f}"
+
+    return f"{value:.4e}"
+
+def _ordered_curve_names(curves):
+    """
+    Order the curves so each validation one follows its training partner.
+
+    Insertion order alone scatters them, and a line reading
+    ``loss ... val_loss`` is what makes the two comparable at a glance.
+    """
+
+    names, seen = [], set()
+    for name in curves:
+        if name.startswith("val_"):
+            continue
+        names.append(name)
+        seen.add(name)
+        partner = f"val_{name}"
+        if partner in curves:
+            names.append(partner)
+            seen.add(partner)
+
+    return names + [name for name in curves if name not in seen]
+
+def save_epoch_log(run_dir, run_name, history):
+    """Write one line per epoch with every curve the run recorded.
+
+    The metrics pickle keeps only the last value of each curve, and the
+    console scrollback is gone as soon as the kernel restarts, so without
+    this file the shape of a training run cannot be recovered afterwards.
+
+    Parameters
+    ----------
+    run_dir : str
+        Directory returned by ``prepare_run_directory``.
+    run_name : str
+        Same name used for the directory, used as the filename stem.
+    history : dict
+        Either ``{curve: per-epoch values}``, or ``{phase: {curve: ...}}``
+        when the run had more than one phase, as VGG16 does with its head
+        and fine-tuning passes.
+
+    Returns
+    -------
+    str
+        Path of the written file.
+    """
+
+    phased = bool(history) and all(
+        isinstance(value, dict) for value in history.values()
+    )
+    phases = history if phased else {None: history}
+
+    blocks = []
+    for label, curves in phases.items():
+        curves = {
+            name: list(values) for name, values in curves.items()
+            if values is not None
+        }
+        names = _ordered_curve_names(curves)
+        epochs = max((len(curves[name]) for name in names), default=0)
+        blocks.append((label, curves, names, epochs))
+
+    total = sum(epochs for _, _, _, epochs in blocks)
+    lines = [run_name, f"{total} epoch(s) recorded"]
+
+    for label, curves, names, epochs in blocks:
+        lines.append("")
+        if label is not None:
+            lines.append(label)
+        for index in range(epochs):
+            parts = [f"Epoch {index + 1}/{epochs}"]
+            parts += [
+                f"{name}: {_format_metric(curves[name][index])}"
+                for name in names if index < len(curves[name])
+            ]
+            lines.append(" - ".join(parts))
+
+    return _write_text(run_dir, f"{run_name}_epochs_data.txt", lines)
+
+def _write_text(run_dir, filename, lines):
+    """Write the lines of one run artefact and return its path."""
+
+    os.makedirs(run_dir, exist_ok=True)
+    path = os.path.join(run_dir, filename)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(line.rstrip() for line in lines) + "\n")
+
+    return path
 
 def stage_preview_directory(session):
     """Create and return the staging directory of one training session.
@@ -233,21 +409,24 @@ def list_runs(model):
     directories = _run_directories(MODEL_FAMILY_ROOTS[model])
 
     if model == "VGG16":
-        expected = {source.upper() for source in VGG16_SOURCES}
-        found = {}
+        # A run is one folder holding both variants, so the pair is checked
+        # inside it rather than across the family root.
+        root = MODEL_FAMILY_ROOTS[model]
+        timestamps = []
         for name in directories:
             match = _TIMESTAMP_RE.search(name)
             if match is None:
                 continue
             timestamp = match.group(1)
-            for source in VGG16_SOURCES:
-                if name == vgg16_variant_name(source, timestamp):
-                    found.setdefault(timestamp, set()).add(source.upper())
-
-        timestamps = [
-            timestamp for timestamp, variants in found.items()
-            if variants == expected
-        ]
+            if name != vgg16_run_name(timestamp):
+                continue
+            if all(
+                os.path.isdir(os.path.join(
+                    root, name, vgg16_variant_name(source, timestamp)
+                ))
+                for source in VGG16_SOURCES
+            ):
+                timestamps.append(timestamp)
     else:
         timestamps = []
         for name in directories:
@@ -347,17 +526,21 @@ def _esrgan_artifacts(root, timestamp, scale_factor):
     }
 
 def _vgg16_artifacts(root, timestamp, scale_factor):
-    artifacts = {}
-
     # The VGG16 notebook trains one classifier per input resolution in the
-    # same run, so a single timestamp identifies both variants.
+    # same run, so a single timestamp identifies both variants and both
+    # live under one run directory.
+    run_dir = os.path.join(root, vgg16_run_name(timestamp))
+    artifacts = {"run_dir": run_dir}
+
     for source in VGG16_SOURCES:
         variant = vgg16_variant_name(source, timestamp)
-        run_dir = os.path.join(root, variant)
-        artifacts[f"{source}_run_dir"] = run_dir
-        artifacts[f"{source}_weights"] = os.path.join(run_dir, f"{variant}.h5")
+        variant_dir = os.path.join(run_dir, variant)
+        artifacts[f"{source}_run_dir"] = variant_dir
+        artifacts[f"{source}_weights"] = os.path.join(
+            variant_dir, f"{variant}.h5"
+        )
         artifacts[f"{source}_metrics"] = os.path.join(
-            run_dir, f"{variant}_metrics.pkl"
+            variant_dir, f"{variant}_metrics.pkl"
         )
 
     return artifacts

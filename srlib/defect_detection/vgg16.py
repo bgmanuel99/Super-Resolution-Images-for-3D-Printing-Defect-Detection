@@ -29,7 +29,10 @@ from srlib.dataset.loading import add_padding
 # one convention.
 from srlib.model_registry import (
     prepare_run_directory,
+    save_epoch_log,
+    save_model_summary,
     save_run_metrics,
+    vgg16_run_name,
     vgg16_variant_name,
 )
 
@@ -505,9 +508,22 @@ class FineTunedVGG16:
                 "frozen_params": frozen,
             }
 
-            run_dir = prepare_run_directory("VGG16", run_name)
+            # Both variants of a run share one parent folder, so the pair
+            # the pipeline needs cannot be half-deleted or half-copied.
+            run_dir = prepare_run_directory(
+                "VGG16", run_name, parent=vgg16_run_name(timestamp)
+            )
             self.save(directory=run_dir, timestamp=timestamp, source=source)
             step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+            step(f"summary    -> {save_model_summary(run_dir, run_name, self.model)}")
+
+            # The two phases are kept apart here, unlike in the metrics,
+            # because the epoch numbering restarts at the unfreeze.
+            step("epochs     -> " + save_epoch_log(
+                run_dir, run_name,
+                {"Phase 1/2 - head only": head_history.history,
+                 "Phase 2/2 - backbone fine-tuning": finetune_history.history},
+            ))
 
         return timestamp, run_dir, metrics
 

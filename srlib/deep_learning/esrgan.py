@@ -43,6 +43,8 @@ from srlib.dataset.loading import add_padding
 from srlib.model_registry import (
     collect_staged_previews,
     prepare_run_directory,
+    save_epoch_log,
+    save_model_summary,
     save_run_metrics,
     stage_preview_directory,
 )
@@ -1097,6 +1099,19 @@ class ESRGAN:
             run_dir = prepare_run_directory("ESRGAN", run_name)
             self.save(directory=run_dir, timestamp=timestamp)
             step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
+            step("summary    -> " + save_model_summary(
+                run_dir, run_name,
+                {"GENERATOR": self.generator,
+                 "DISCRIMINATOR": self.discriminator,
+                 "VGG FEATURE EXTRACTOR": self.vgg_model},
+            ))
+
+            # The custom loop keeps the epoch durations outside the history,
+            # so they are folded back in to match what the Keras models log.
+            step("epochs     -> " + save_epoch_log(
+                run_dir, run_name,
+                {**history, "epoch_time_sec": time_cb.epoch_times_sec},
+            ))
 
             # Previews of sessions that were never saved travel with this
             # run rather than being lost, tagged with the session that

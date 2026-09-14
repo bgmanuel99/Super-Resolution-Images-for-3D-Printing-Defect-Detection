@@ -302,8 +302,8 @@ VIDEO_MAX_VIDEOS_PER_FOLDER = {
 }
 
 VIDEO_FRAME_INTERVAL_PER_FOLDER = {
-    "low_z_offset": 49,
-    "high_z_offset": 25,
+    "low_z_offset": 39,
+    "high_z_offset": 20,
 }
 
 VIDEO_CLASS_ID_PER_FOLDER = {
