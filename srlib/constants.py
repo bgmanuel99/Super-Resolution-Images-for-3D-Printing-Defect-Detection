@@ -78,16 +78,18 @@ ESRGAN_STRIDE = 24
 ESRGAN_SCALE_FACTOR = 2
 
 # ESRGAN trains in a custom loop, so it has no plateau callback to give
-# patience to. Its equivalent knob is the decay schedule: the rate halves
-# every DECAY_STEPS optimiser steps. At roughly a thousand steps per epoch,
-# 10000 steps halved it every nine epochs and left the generator frozen
-# long before the run ended, so the interval is set to span a few halvings
-# over the whole schedule instead of a dozen.
+# patience to. Its equivalent knob is how many times the rate is allowed to
+# halve over the WHOLE run; 'fit' turns that count into a decay interval
+# once it knows how many optimiser steps the run will take. Declaring the
+# interval directly is what kept going wrong: the same value that decays
+# gently over fifty epochs freezes both networks over two hundred, and at
+# 1,800 steps per epoch a 30,000 step interval halved the rate fifteen
+# times across 250 epochs, ending at a billionth of the initial value.
 # The discriminator starts an order of magnitude lower than the generator
 # so that it does not overpower it early in training.
 ESRGAN_GENERATOR_LR = 1e-4
 ESRGAN_DISCRIMINATOR_LR = 1e-5
-ESRGAN_LR_DECAY_STEPS = 30000
+ESRGAN_LR_DECAY_HALVINGS = 4
 ESRGAN_LR_DECAY_RATE = 0.5
 
 # How often the training loop renders a grid of generator outputs, so the
@@ -105,16 +107,27 @@ ESRGAN_PREVIEW_SUBDIR = "grid_figures"
 VGG_PATCH_SIZE = 96
 VGG_STRIDE = 48
 
-# Weights of the four terms of the ESRGAN generator loss, following the
-# original paper: the perceptual term leads and the adversarial and pixel
-# terms contribute a small correction. The spectral term is specific to
-# this work and is weighted to sit on the same order as the rest once its
-# magnitude is normalised by the transform size.
+# Weights of the four terms of the ESRGAN generator loss, chosen so that
+# the four WEIGHTED terms stay within one order of magnitude of each other.
+# The paper's weights (1.0 / 5e-3 / 1e-2 / -) assume a perceptual term
+# measured as an L1 distance over pre-activation VGG features. This
+# implementation measures it as an MSE over post-activation block5_conv4,
+# which is two to three orders of magnitude larger, so under the paper's
+# numbers the perceptual term was 99.96 % of the objective: the pixel term
+# contributed 0.002 % and the adversarial one 0.022 %, leaving PSNR
+# effectively unoptimised and the discriminator without influence.
+#
+# Measured on a converged batch, these weights put the pixel term near half
+# of the objective, the perceptual and adversarial terms around a fifth
+# each, and the spectral term the rest. Absolute scale is irrelevant under
+# Adam, which normalises by gradient magnitude, so only the ratios matter;
+# note that the reported generator loss is now of order 0.2 instead of 20
+# and is not comparable with runs made before this change.
 ESRGAN_LOSS_WEIGHTS = {
-    "perceptual": 1.0,
-    "adversarial": 5e-3,
-    "pixel": 1e-2,
-    "spectral": 0.1,
+    "perceptual": 1e-3,
+    "adversarial": 2e-2,
+    "pixel": 1.0,
+    "spectral": 0.2,
 }
 
 # Profiling of the classic algorithms: untimed runs that warm the caches
@@ -133,7 +146,7 @@ RANDOM_SEED = 42
 # any of them silently breaks the disjointness between the pipeline test
 # set and the training set of every model it evaluates.
 DATASET_FRACTION = 1.0
-TEST_SIZE = 0.1
+TEST_SIZE = 0.2
 VAL_SIZE = 0.1
 
 # =====================================================================
@@ -289,8 +302,8 @@ VIDEO_MAX_VIDEOS_PER_FOLDER = {
 }
 
 VIDEO_FRAME_INTERVAL_PER_FOLDER = {
-    "low_z_offset": 80,
-    "high_z_offset": 50,
+    "low_z_offset": 49,
+    "high_z_offset": 25,
 }
 
 VIDEO_CLASS_ID_PER_FOLDER = {

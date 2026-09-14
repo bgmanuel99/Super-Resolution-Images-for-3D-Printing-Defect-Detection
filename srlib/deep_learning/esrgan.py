@@ -33,8 +33,8 @@ from srlib.constants import (
     ESRGAN_SCALE_FACTOR,
     ESRGAN_DISCRIMINATOR_LR,
     ESRGAN_GENERATOR_LR,
+    ESRGAN_LR_DECAY_HALVINGS,
     ESRGAN_LR_DECAY_RATE,
-    ESRGAN_LR_DECAY_STEPS,
     ESRGAN_PREVIEW_EVERY,
     ESRGAN_PREVIEW_SUBDIR,
     TIMESTAMP_FORMAT,
@@ -212,30 +212,18 @@ class ESRGAN:
         """
         Compile the generator and the discriminator with their optimizers.
 
-        Both use Adam over an exponentially decaying rate. The discriminator
-        starts an order of magnitude lower than the generator so that it does
-        not overpower it early in training.
+        Both start at a constant Adam rate, the discriminator an order of
+        magnitude lower than the generator so that it does not overpower it
+        early in training. The decay is installed later by
+        ``_schedule_learning_rates``, which is the first point at which the
+        length of the run is known.
         """
         
         self.g_optimizer = Adam(
-            learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=ESRGAN_GENERATOR_LR,
-                decay_steps=ESRGAN_LR_DECAY_STEPS,
-                decay_rate=ESRGAN_LR_DECAY_RATE,
-                staircase=True
-            ), 
-            beta_1=0.9, 
-            beta_2=0.999
+            learning_rate=ESRGAN_GENERATOR_LR, beta_1=0.9, beta_2=0.999
         )
         self.d_optimizer = Adam(
-            learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=ESRGAN_DISCRIMINATOR_LR,
-                decay_steps=ESRGAN_LR_DECAY_STEPS,
-                decay_rate=ESRGAN_LR_DECAY_RATE,
-                staircase=True
-            ), 
-            beta_1=0.9, 
-            beta_2=0.999
+            learning_rate=ESRGAN_DISCRIMINATOR_LR, beta_1=0.9, beta_2=0.999
         )
         
         print("=" * 50)
@@ -560,53 +548,107 @@ class ESRGAN:
         return total, components
 
     
+    def _schedule_learning_rates(self, epochs, steps_per_epoch):
+        """
+        Install the decay schedule now that the length of the run is known.
+
+        The interval between two halvings is derived from the total number
+        of optimiser steps, so both rates fall by the same factor over any
+        run regardless of how many epochs or patches it covers. A fixed
+        interval cannot do that, and getting it wrong in the frozen
+        direction is silent: the losses simply stop moving.
+
+        Args:
+            epochs: Number of epochs the run will cover
+            steps_per_epoch: Optimiser steps per epoch
+        """
+
+        total_steps = int(epochs) * int(steps_per_epoch)
+        decay_steps = max(
+            1, total_steps // max(1, int(ESRGAN_LR_DECAY_HALVINGS))
+        )
+
+        for optimizer, initial in (
+                (self.g_optimizer, ESRGAN_GENERATOR_LR),
+                (self.d_optimizer, ESRGAN_DISCRIMINATOR_LR)):
+            if optimizer is None:
+                continue
+            optimizer.learning_rate = (
+                tf.keras.optimizers.schedules.ExponentialDecay(
+                    initial_learning_rate=initial,
+                    decay_steps=decay_steps,
+                    decay_rate=ESRGAN_LR_DECAY_RATE,
+                    staircase=True,
+                )
+            )
+
+        print(
+            f"- LR schedule: x{ESRGAN_LR_DECAY_RATE} every {decay_steps} "
+            f"steps, {ESRGAN_LR_DECAY_HALVINGS} times over {total_steps} "
+            f"steps"
+        )
+
+    @tf.function(reduce_retracing=True)
     def _train_step(self, lr_images, hr_images):
         """
-        Perform one training step.
-        
+        Perform one training step over both networks.
+
+        The two updates are taken from a single forward pass held by one
+        persistent tape. Alternating them needs the generator evaluated
+        once per tape, and the generator is the expensive half of the pair;
+        the gradient of each loss is still read against its own variables
+        only, so neither update leaks into the other network.
+
+        PSNR and SSIM are returned from the same ``hr_fake``. The generator
+        holds no layer whose behaviour depends on the training flag, so a
+        second pass with ``training=False`` would return an identical
+        tensor at the cost of a third traversal of the network.
+
         Args:
-            lr_images: Low-resolution images
-            hr_images: High-resolution images
-            
+            lr_images: Low-resolution images in [-1, 1]
+            hr_images: High-resolution images in [-1, 1]
+
         Returns:
-            Dictionary containing losses
+            Dictionary with both losses and both perceptual metrics.
         """
-        
-        # Train discriminator
-        with tf.GradientTape() as d_tape:
-            # Generate fake images
+
+        with tf.GradientTape(persistent=True) as tape:
             hr_fake = self.generator(lr_images, training=True)
-            
-            # Discriminator predictions
+
             d_real = self.discriminator(hr_images, training=True)
             d_fake = self.discriminator(hr_fake, training=True)
-            
-            # Discriminator losses
-            d_loss_real = self._adversarial_loss(tf.ones_like(d_real), d_real)
-            d_loss_fake = self._adversarial_loss(tf.zeros_like(d_fake), d_fake)
-            d_loss = d_loss_real + d_loss_fake
-        
-        # Update discriminator
-        d_grads = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
-        self.d_optimizer.apply_gradients(zip(d_grads, self.discriminator.trainable_variables))
-        
-        # Train generator
-        with tf.GradientTape() as g_tape:
-            # Generate fake images
-            hr_fake = self.generator(lr_images, training=True)
-            
-            # Discriminator prediction for fake images
-            d_fake = self.discriminator(hr_fake, training=True)
-            
+
+            d_loss = (
+                self._adversarial_loss(tf.ones_like(d_real), d_real)
+                + self._adversarial_loss(tf.zeros_like(d_fake), d_fake)
+            )
             g_loss, _ = self._generator_loss(hr_images, hr_fake, d_fake)
-        
-        # Update generator
-        g_grads = g_tape.gradient(g_loss, self.generator.trainable_variables)
-        self.g_optimizer.apply_gradients(zip(g_grads, self.generator.trainable_variables))
-        
+
+        d_grads = tape.gradient(
+            d_loss, self.discriminator.trainable_variables
+        )
+        g_grads = tape.gradient(g_loss, self.generator.trainable_variables)
+        del tape
+
+        self.d_optimizer.apply_gradients(
+            zip(d_grads, self.discriminator.trainable_variables)
+        )
+        self.g_optimizer.apply_gradients(
+            zip(g_grads, self.generator.trainable_variables)
+        )
+
+        hr_real_eval = (hr_images + 1.0) / 2.0
+        hr_gen_eval = (hr_fake + 1.0) / 2.0
+
         return {
-            "g_loss": g_loss, 
-            "d_loss": d_loss, 
+            "g_loss": g_loss,
+            "d_loss": d_loss,
+            "psnr": tf.reduce_mean(
+                tf.image.psnr(hr_real_eval, hr_gen_eval, max_val=1.0)
+            ),
+            "ssim": tf.reduce_mean(
+                tf.image.ssim(hr_real_eval, hr_gen_eval, max_val=1.0)
+            ),
         }
     
     def fit(
@@ -708,68 +750,115 @@ class ESRGAN:
         elif save_dir:
             os.makedirs(save_dir, exist_ok=True)
 
-        # Cache holding a fixed preview batch, so it stays the same across epochs
-        preview_lr_cache = None
-        preview_cache_is_normalized = False  # True when it comes from a dataset already in [-1,1]
+        # Cache of a fixed preview batch, so the same patches are rendered at
+        # every epoch and two grids differ only by what the generator learnt.
+        preview_cache = None
 
         def _prepare_preview_batch():
-            nonlocal preview_lr_cache, preview_cache_is_normalized
-            if preview_lr_cache is not None:
-                return preview_lr_cache, preview_cache_is_normalized
+            nonlocal preview_cache
+            if preview_cache is not None:
+                return preview_cache
 
-            n_max = 25
-            batch = None
+            n_max = 8
+            lr_batch, hr_batch = None, None
             is_norm = False
-            
+
             if X_val is not None and len(X_val) > 0:
-                batch = X_val[:min(n_max, len(X_val))]
-                is_norm = False
+                lr_batch, hr_batch = X_val, Y_val
             elif X_train is not None and len(X_train) > 0:
-                batch = X_train[:min(n_max, len(X_train))]
-                is_norm = False
+                lr_batch, hr_batch = X_train, Y_train
+
+            if lr_batch is not None:
+                # The patches of one image are contiguous in these arrays, so
+                # the leading slice of them is a set of neighbouring crops of
+                # a single frame. Spreading the picks over the whole array is
+                # what makes the grid show unrelated content.
+                idx = np.unique(
+                    np.linspace(
+                        0, len(lr_batch) - 1, min(n_max, len(lr_batch))
+                    ).round().astype(int)
+                )
+                lr_batch, hr_batch = lr_batch[idx], hr_batch[idx]
             else:
-                src = val_data_struct if val_data_struct is not None else train_dataset
-                for lr_b, _ in src.take(1):
-                    lr_np = lr_b.numpy()
-                    batch = lr_np[:min(n_max, lr_np.shape[0])]
-                    is_norm = True if normalize else False
-                if batch is None:
+                src = (
+                    val_data_struct if val_data_struct is not None
+                    else train_dataset
+                )
+                for lr_b, hr_b in src.take(1):
+                    lr_batch = lr_b.numpy()[:n_max]
+                    hr_batch = hr_b.numpy()[:n_max]
+                    is_norm = bool(normalize)
+                if lr_batch is None:
                     raise RuntimeError("Could not obtain a preview batch to save images.")
 
-            preview_lr_cache = batch.astype(np.float32)
-            preview_cache_is_normalized = is_norm
-            return preview_lr_cache, preview_cache_is_normalized
+            preview_cache = (
+                lr_batch.astype(np.float32),
+                hr_batch.astype(np.float32),
+                is_norm,
+            )
+            return preview_cache
 
         def _to_uint8(img):
             img = np.clip(img, 0.0, 1.0)
             return (img * 255.0).round().astype(np.uint8)
 
-        def _save_sr_grid(epoch_idx):
+        def _save_preview_grid(epoch_idx):
+            """
+            Write one row per preview patch as LR | SR | HR.
+
+            The generator output on its own says nothing: a 48 px crop looks
+            plausible from the first epoch, because the network is fed the
+            low-resolution image and not a noise vector. What the grid has
+            to show is the distance still left to the reference, so the
+            input and the target are rendered beside it.
+            """
+
             if not save_dir:
                 return
-            
-            lr_preview, is_norm = _prepare_preview_batch()
-            
+
+            lr_preview, hr_preview, is_norm = _prepare_preview_batch()
+
             lr_in = lr_preview if is_norm else (lr_preview * 2.0 - 1.0)
-            
-            sr = self.generator(lr_in, training=False).numpy()
-            
-            sr = (sr + 1.0) / 2.0
+            sr = (self.generator(lr_in, training=False).numpy() + 1.0) / 2.0
 
-            # Build the 5x5 grid
-            n = min(25, sr.shape[0])
-            rows, cols = 5, 5
-            h, w, ch = sr.shape[1], sr.shape[2], sr.shape[3]
-            grid = np.zeros((rows * h, cols * w, ch), dtype=np.uint8)
-            for idx in range(n):
-                r = idx // cols
-                cidx = idx % cols
-                tile = _to_uint8(sr[idx])
-                grid[r*h:(r+1)*h, cidx*w:(cidx+1)*w] = tile
+            # Only a batch taken from a normalised dataset needs mapping back.
+            lr_view = (lr_preview + 1.0) / 2.0 if is_norm else lr_preview
+            hr_view = (hr_preview + 1.0) / 2.0 if is_norm else hr_preview
 
-            # Save as PNG
+            # The LR patch is repeated, not resampled, up to HR size: the
+            # three columns then share a scale and whatever blur the left
+            # column shows is the generator's input rather than an artefact
+            # introduced by the figure.
+            ratio = hr_view.shape[1] // lr_view.shape[1]
+            lr_view = np.repeat(
+                np.repeat(lr_view, ratio, axis=1), ratio, axis=2
+            )
+
+            # A 48 px tile is too small to judge, so every tile is repeated
+            # by an integer factor. Nearest-neighbour keeps the zoom honest.
+            zoom, gutter = 3, 4
+            h = hr_view.shape[1] * zoom
+            w = hr_view.shape[2] * zoom
+            rows = len(sr)
+
+            grid = np.full(
+                (rows * h + (rows - 1) * gutter, 3 * w + 2 * gutter, 3),
+                255, dtype=np.uint8,
+            )
+            for r in range(rows):
+                top = r * (h + gutter)
+                for col, tile in enumerate((lr_view[r], sr[r], hr_view[r])):
+                    tile = _to_uint8(tile)
+                    tile = np.repeat(
+                        np.repeat(tile, zoom, axis=0), zoom, axis=1
+                    )
+                    left = col * (w + gutter)
+                    grid[top:top + h, left:left + w] = tile
+
             png = tf.image.encode_png(grid)
-            out_path = os.path.join(save_dir, f"epoch_{epoch_idx:03d}_sr_grid.png")
+            out_path = os.path.join(
+                save_dir, f"epoch_{epoch_idx:03d}_lr_sr_hr.png"
+            )
             tf.io.write_file(out_path, png)
 
         # Trackers
@@ -781,6 +870,10 @@ class ESRGAN:
         train_keys = ("g_loss", "d_loss", "psnr", "ssim", "g_lr", "d_lr")
         val_keys = ("val_g_loss", "val_psnr", "val_ssim")
         history = {key: [] for key in train_keys + val_keys}
+
+        # The decay interval needs the total number of steps, which is only
+        # settled once epochs and steps_per_epoch are both resolved.
+        self._schedule_learning_rates(epochs, steps_per_epoch)
 
         # Training loop
         for epoch in range(epochs):
@@ -796,19 +889,13 @@ class ESRGAN:
 
             # Iterate over training batches
             for step, (lr_batch, hr_batch) in enumerate(train_dataset.take(steps_per_epoch)):
+                # The step returns the perceptual metrics alongside the two
+                # losses, computed on the forward pass it already needed.
                 losses = self._train_step(lr_batch, hr_batch)
                 for key, value in losses.items():
                     if key in epoch_losses:
                         epoch_losses[key].append(float(value.numpy()))
 
-                # Perceptual metrics every 10 steps
-                hr_fake = self.generator(lr_batch, training=False)
-                hr_real_eval = (hr_batch + 1.0) / 2.0
-                hr_gen_eval = (hr_fake + 1.0) / 2.0
-                psnr_score = tf.reduce_mean(tf.image.psnr(hr_real_eval, hr_gen_eval, max_val=1.0))
-                ssim_score = tf.reduce_mean(tf.image.ssim(hr_real_eval, hr_gen_eval, max_val=1.0))
-                epoch_losses["psnr"].append(float(psnr_score.numpy()))
-                epoch_losses["ssim"].append(float(ssim_score.numpy()))
                 epoch_losses["g_lr"].append(float(self.g_optimizer._decayed_lr(tf.float32).numpy()))
                 epoch_losses["d_lr"].append(float(self.d_optimizer._decayed_lr(tf.float32).numpy()))
 
@@ -864,7 +951,7 @@ class ESRGAN:
             # First epoch as the baseline, then one grid every few epochs:
             # what the previews are for is the trend, not every step.
             if epoch == 0 or (epoch + 1) % preview_every == 0:
-                _save_sr_grid(epoch + 1)
+                _save_preview_grid(epoch + 1)
 
             self.trained = True
 

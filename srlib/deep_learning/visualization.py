@@ -200,9 +200,21 @@ def plot_vgg16_training_curves(
     Plot the loss and accuracy curves of every VGG16 variant.
 
     Both variants are drawn on the same pair of axes so the resolution they
-    were trained on can be compared directly. Training is solid, validation
-    dashed, and a horizontal line marks each variant's test score. A vertical
-    line marks the epoch the backbone was unfrozen.
+    were trained on can be compared directly. Each variant owns a hue, and
+    within that hue the two splits are told apart by three cues at once:
+    training is the dark shade, solid, with round markers, and validation is
+    the light shade, dashed, with square markers. One cue alone is not
+    enough on a sixty-epoch curve where the two splits overlap.
+
+    A dotted horizontal line is the variant's test score. The vertical line
+    is where its first phase ended and the backbone was unfrozen, which is
+    what the step in every curve at that epoch comes from; both lines carry
+    their own legend entry so the figure needs no external caption.
+
+    The loss panel is logarithmic because the two phases live on different
+    scales: the head starts above 0.5 and the fine-tuning settles below
+    0.05, so on a linear axis the whole second phase collapses into the
+    bottom tenth of the panel.
 
     Parameters
     ----------
@@ -218,7 +230,12 @@ def plot_vgg16_training_curves(
         ``(fig, axes)``.
     """
 
-    colors = {"hr": "tab:blue", "lr": "tab:orange"}
+    # Dark shade for training, light shade of the same hue for validation.
+    palette = {
+        "hr": {"train": "#14375e", "val": "#7aa6d2"},
+        "lr": {"train": "#8a3c07", "val": "#f0a35e"},
+    }
+    fallback = {"train": "#333333", "val": "#999999"}
     panels = [
         ("loss", "final_train_loss", "final_val_loss", "eval_loss", "Loss"),
         ("accuracy", "final_train_accuracy", "final_val_accuracy",
@@ -229,41 +246,52 @@ def plot_vgg16_training_curves(
 
     for ax, (name, train_key, val_key, eval_key, ylabel) in zip(axes, panels):
         for source, metrics in metrics_by_source.items():
-            color = colors.get(source, None)
+            shades = palette.get(source, fallback)
             tag = source.upper()
 
-            for key, style, suffix in (
-                    (train_key, "-", "train"), (val_key, "--", "val")):
+            for key, split, style, marker in (
+                    (train_key, "train", "-", "o"),
+                    (val_key, "val", "--", "s")):
                 curve = metrics.get(key)
                 if not isinstance(curve, (list, tuple)) or len(curve) == 0:
                     continue
                 ax.plot(
                     range(1, len(curve) + 1), curve,
-                    style, color=color, marker="o", markersize=3,
-                    label=f"{tag} {suffix}",
+                    style, color=shades[split], marker=marker, markersize=4,
+                    # A marker on every epoch turns a long curve into a solid
+                    # band and hides the shape it is there to show.
+                    markevery=max(1, len(curve) // 12),
+                    linewidth=1.6, zorder=3,
+                    label=f"{tag} {split}",
                 )
 
             score = metrics.get(eval_key)
             if score is not None:
                 ax.axhline(
-                    float(score), color=color, ls=":", alpha=0.8,
-                    label=f"{tag} test={float(score):.4f}",
+                    float(score), color=shades["train"], ls=":", linewidth=1.4,
+                    alpha=0.9, zorder=2,
+                    label=f"{tag} test = {float(score):.4f}",
                 )
 
-            # The backbone is unfrozen here, so a step in the curve is
-            # expected at this epoch.
+            # Phase 1 trains the head over a frozen backbone and phase 2
+            # opens its last layers, so both the loss and the accuracy step
+            # at this epoch by construction rather than by instability.
             head_epochs = metrics.get("head_epochs_run")
             if head_epochs:
                 ax.axvline(
-                    float(head_epochs) + 0.5, color=color,
-                    ls="-.", alpha=0.35,
+                    float(head_epochs) + 0.5, color=shades["train"],
+                    ls="-.", linewidth=1.2, alpha=0.55, zorder=1,
+                    label=(f"{tag} backbone unfrozen "
+                           f"(phase 2 from epoch {int(head_epochs) + 1})"),
                 )
 
         ax.set_title(name.capitalize())
         ax.set_xlabel("Epoch")
         ax.set_ylabel(ylabel)
-        ax.grid(alpha=0.3)
-        ax.legend(fontsize=8)
+        if name == "loss":
+            ax.set_yscale("log")
+        ax.grid(alpha=0.3, which="both")
+        ax.legend(fontsize=7, ncol=2, framealpha=0.9)
 
     fig.suptitle(title, fontsize=14)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
