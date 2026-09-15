@@ -18,7 +18,6 @@ from srlib.classic.algorithms import (
     interpolate_bicubic,
     interpolate_bilinear,
     interpolate_lanczos,
-    interpolate_nearest,
     non_local_means,
 )
 from srlib.constants import (
@@ -55,16 +54,16 @@ class DefectDetectionPipeline:
     reconstruction. Without the ceiling an accuracy cannot be read as close
     to or far from what the resolution allows.
 
-    The baseline is resampled to the reference frame with nearest
-    neighbour, so it is a rescaled LR row and has to be described as one.
-    Replicating pixels adds no detail, which is what keeps the row a
-    measure of the low-resolution capture, but it does put every row at the
-    same frame size and the same number of voting patches: without it the
-    baseline aggregated 16 patches against 81 and showed the object at
-    twice the apparent scale the classifier was trained on, so part of any
-    gap in its favour came from the protocol rather than the resolution.
+    The baseline keeps its native resolution and is classified as it is,
+    with no resampling: rescaling it would equalise the frame but would add
+    an interpolation step that is not part of the capture, turning the
+    comparison into super-resolution against interpolation. The cost is
+    that it aggregates 16 voting patches against the 81 of every other row
+    and shows the object at twice the apparent scale the classifier was
+    trained on, so the gap between the baseline and an SR row is not due to
+    resolution alone. That has to be declared when the row is read.
 
-    All twelve reconstructions produce RGB float images in ``[0, 1]`` at the
+    All eleven reconstructions produce RGB float images in ``[0, 1]`` at the
     HR frame size, which is the input regime the classifier was trained on.
     """
 
@@ -295,8 +294,9 @@ class DefectDetectionPipeline:
         """
         Reconstruct the test set with every method.
 
-        Only HR is stored unchanged. Every other row, the rescaled baseline
-        included, outputs RGB floats in ``[0, 1]`` at the HR frame size.
+        The two reference rows are stored unchanged: LR at its native
+        resolution and HR as the ceiling. The remaining eleven methods
+        output RGB floats in ``[0, 1]`` at the HR frame size.
 
         Returns
         -------
@@ -314,21 +314,12 @@ class DefectDetectionPipeline:
         )
         started = time.perf_counter()
 
-        # The ceiling is the original frame, so it is the only row that is
-        # not resampled and the only one that bypasses _map_images.
-        self.sr_images = {"HR": self.X_HR_test}
-        print(f"  {'HR':<{self._LABEL_WIDTH}} reference, used unchanged")
-
-        # The baseline is brought to the reference frame by replicating
-        # pixels. It adds no detail, so the row still measures the
-        # low-resolution capture, but it puts the baseline at the frame
-        # size and the patch count every other row is scored at.
-        self.sr_images["LR"] = self._map_images(
-            "LR (nearest upscale)",
-            lambda lr: interpolate_nearest(
-                lr, target_shape=(self.hr_w, self.hr_h)
-            ),
-        )
+        # Neither reference is reconstructed, so both bypass _map_images.
+        self.sr_images = {"LR": self.X_LR_test, "HR": self.X_HR_test}
+        for name, note in (
+                ("LR", "baseline, native resolution"),
+                ("HR", "reference, used unchanged")):
+            print(f"  {name:<{self._LABEL_WIDTH}} {note}")
 
         self.sr_images["SRCNN"] = self._run_deep_model(
             "SRCNN",
