@@ -743,7 +743,9 @@ class DefectDetectionPipeline:
         self._hide_unused_axes(flat_axes, len(self.METHODS))
         fig.suptitle(f"True label: {self.y_test[index]}", fontsize=12)
         fig.tight_layout(rect=(0, 0, 1, 0.97))
-        self._save_figure(fig, "vgg16_predictions.png", dpi=300, also_eps=True)
+        self._save_figure(
+            fig, "vgg16_predictions.png", dpi=300, also_eps=False
+        )
 
         return fig, axes
 
@@ -861,7 +863,7 @@ class DefectDetectionPipeline:
 
         fig.tight_layout()
         self._save_figure(
-            fig, "sr_confidence_panel.png", dpi=300, also_eps=True
+            fig, "sr_confidence_panel.png", dpi=300, also_eps=False
         )
 
         return fig, axes, metrics
