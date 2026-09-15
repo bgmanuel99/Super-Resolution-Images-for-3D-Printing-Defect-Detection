@@ -1,0 +1,1410 @@
+==============================================================================================================
+ GENERATOR
+==============================================================================================================
+Model: "Generator"
+______________________________________________________________________________________________________________
+ Layer (type)                       Output Shape            Param #      Connected to
+==============================================================================================================
+ lr_input (InputLayer)              [(None, 24, 24, 3)]     0            []
+
+ initial_conv (Conv2D)              (None, 24, 24, 64)      1792         ['lr_input[0][0]']
+
+ rrdb_0_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['initial_conv[0][0]']
+
+ rrdb_0_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['initial_conv[0][0]',
+ )                                                                        'rrdb_0_dense1_conv1[0][0]']
+
+ rrdb_0_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_0_dense1_concat1[0][0]']
+
+ rrdb_0_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['initial_conv[0][0]',
+ )                                                                        'rrdb_0_dense1_conv1[0][0]',
+                                                                          'rrdb_0_dense1_conv2[0][0]']
+
+ rrdb_0_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_0_dense1_concat2[0][0]']
+
+ rrdb_0_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['initial_conv[0][0]',
+ )                                                                        'rrdb_0_dense1_conv1[0][0]',
+                                                                          'rrdb_0_dense1_conv2[0][0]',
+                                                                          'rrdb_0_dense1_conv3[0][0]']
+
+ rrdb_0_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_0_dense1_concat3[0][0]']
+
+ rrdb_0_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['initial_conv[0][0]',
+ )                                                                        'rrdb_0_dense1_conv1[0][0]',
+                                                                          'rrdb_0_dense1_conv2[0][0]',
+                                                                          'rrdb_0_dense1_conv3[0][0]',
+                                                                          'rrdb_0_dense1_conv4[0][0]']
+
+ rrdb_0_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_0_dense1_concat4[0][0]']
+
+ rrdb_0_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_0_dense1_conv5[0][0]']
+
+ rrdb_0_dense1_add (Add)            (None, 24, 24, 64)      0            ['initial_conv[0][0]',
+                                                                          'rrdb_0_dense1_scale[0][0]']
+
+ rrdb_0_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_0_dense1_add[0][0]']
+
+ rrdb_0_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_0_dense1_add[0][0]',
+ )                                                                        'rrdb_0_dense2_conv1[0][0]']
+
+ rrdb_0_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_0_dense2_concat1[0][0]']
+
+ rrdb_0_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_0_dense1_add[0][0]',
+ )                                                                        'rrdb_0_dense2_conv1[0][0]',
+                                                                          'rrdb_0_dense2_conv2[0][0]']
+
+ rrdb_0_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_0_dense2_concat2[0][0]']
+
+ rrdb_0_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_0_dense1_add[0][0]',
+ )                                                                        'rrdb_0_dense2_conv1[0][0]',
+                                                                          'rrdb_0_dense2_conv2[0][0]',
+                                                                          'rrdb_0_dense2_conv3[0][0]']
+
+ rrdb_0_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_0_dense2_concat3[0][0]']
+
+ rrdb_0_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_0_dense1_add[0][0]',
+ )                                                                        'rrdb_0_dense2_conv1[0][0]',
+                                                                          'rrdb_0_dense2_conv2[0][0]',
+                                                                          'rrdb_0_dense2_conv3[0][0]',
+                                                                          'rrdb_0_dense2_conv4[0][0]']
+
+ rrdb_0_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_0_dense2_concat4[0][0]']
+
+ rrdb_0_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_0_dense2_conv5[0][0]']
+
+ rrdb_0_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_0_dense1_add[0][0]',
+                                                                          'rrdb_0_dense2_scale[0][0]']
+
+ rrdb_0_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_0_dense2_add[0][0]']
+
+ rrdb_0_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_0_dense2_add[0][0]',
+ )                                                                        'rrdb_0_dense3_conv1[0][0]']
+
+ rrdb_0_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_0_dense3_concat1[0][0]']
+
+ rrdb_0_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_0_dense2_add[0][0]',
+ )                                                                        'rrdb_0_dense3_conv1[0][0]',
+                                                                          'rrdb_0_dense3_conv2[0][0]']
+
+ rrdb_0_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_0_dense3_concat2[0][0]']
+
+ rrdb_0_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_0_dense2_add[0][0]',
+ )                                                                        'rrdb_0_dense3_conv1[0][0]',
+                                                                          'rrdb_0_dense3_conv2[0][0]',
+                                                                          'rrdb_0_dense3_conv3[0][0]']
+
+ rrdb_0_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_0_dense3_concat3[0][0]']
+
+ rrdb_0_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_0_dense2_add[0][0]',
+ )                                                                        'rrdb_0_dense3_conv1[0][0]',
+                                                                          'rrdb_0_dense3_conv2[0][0]',
+                                                                          'rrdb_0_dense3_conv3[0][0]',
+                                                                          'rrdb_0_dense3_conv4[0][0]']
+
+ rrdb_0_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_0_dense3_concat4[0][0]']
+
+ rrdb_0_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_0_dense3_conv5[0][0]']
+
+ rrdb_0_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_0_dense2_add[0][0]',
+                                                                          'rrdb_0_dense3_scale[0][0]']
+
+ rrdb_0_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_0_dense3_add[0][0]']
+
+ rrdb_0_add (Add)                   (None, 24, 24, 64)      0            ['initial_conv[0][0]',
+                                                                          'rrdb_0_scale[0][0]']
+
+ rrdb_1_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_0_add[0][0]']
+
+ rrdb_1_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_0_add[0][0]',
+ )                                                                        'rrdb_1_dense1_conv1[0][0]']
+
+ rrdb_1_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_1_dense1_concat1[0][0]']
+
+ rrdb_1_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_0_add[0][0]',
+ )                                                                        'rrdb_1_dense1_conv1[0][0]',
+                                                                          'rrdb_1_dense1_conv2[0][0]']
+
+ rrdb_1_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_1_dense1_concat2[0][0]']
+
+ rrdb_1_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_0_add[0][0]',
+ )                                                                        'rrdb_1_dense1_conv1[0][0]',
+                                                                          'rrdb_1_dense1_conv2[0][0]',
+                                                                          'rrdb_1_dense1_conv3[0][0]']
+
+ rrdb_1_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_1_dense1_concat3[0][0]']
+
+ rrdb_1_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_0_add[0][0]',
+ )                                                                        'rrdb_1_dense1_conv1[0][0]',
+                                                                          'rrdb_1_dense1_conv2[0][0]',
+                                                                          'rrdb_1_dense1_conv3[0][0]',
+                                                                          'rrdb_1_dense1_conv4[0][0]']
+
+ rrdb_1_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_1_dense1_concat4[0][0]']
+
+ rrdb_1_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_1_dense1_conv5[0][0]']
+
+ rrdb_1_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_0_add[0][0]',
+                                                                          'rrdb_1_dense1_scale[0][0]']
+
+ rrdb_1_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_1_dense1_add[0][0]']
+
+ rrdb_1_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_1_dense1_add[0][0]',
+ )                                                                        'rrdb_1_dense2_conv1[0][0]']
+
+ rrdb_1_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_1_dense2_concat1[0][0]']
+
+ rrdb_1_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_1_dense1_add[0][0]',
+ )                                                                        'rrdb_1_dense2_conv1[0][0]',
+                                                                          'rrdb_1_dense2_conv2[0][0]']
+
+ rrdb_1_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_1_dense2_concat2[0][0]']
+
+ rrdb_1_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_1_dense1_add[0][0]',
+ )                                                                        'rrdb_1_dense2_conv1[0][0]',
+                                                                          'rrdb_1_dense2_conv2[0][0]',
+                                                                          'rrdb_1_dense2_conv3[0][0]']
+
+ rrdb_1_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_1_dense2_concat3[0][0]']
+
+ rrdb_1_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_1_dense1_add[0][0]',
+ )                                                                        'rrdb_1_dense2_conv1[0][0]',
+                                                                          'rrdb_1_dense2_conv2[0][0]',
+                                                                          'rrdb_1_dense2_conv3[0][0]',
+                                                                          'rrdb_1_dense2_conv4[0][0]']
+
+ rrdb_1_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_1_dense2_concat4[0][0]']
+
+ rrdb_1_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_1_dense2_conv5[0][0]']
+
+ rrdb_1_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_1_dense1_add[0][0]',
+                                                                          'rrdb_1_dense2_scale[0][0]']
+
+ rrdb_1_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_1_dense2_add[0][0]']
+
+ rrdb_1_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_1_dense2_add[0][0]',
+ )                                                                        'rrdb_1_dense3_conv1[0][0]']
+
+ rrdb_1_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_1_dense3_concat1[0][0]']
+
+ rrdb_1_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_1_dense2_add[0][0]',
+ )                                                                        'rrdb_1_dense3_conv1[0][0]',
+                                                                          'rrdb_1_dense3_conv2[0][0]']
+
+ rrdb_1_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_1_dense3_concat2[0][0]']
+
+ rrdb_1_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_1_dense2_add[0][0]',
+ )                                                                        'rrdb_1_dense3_conv1[0][0]',
+                                                                          'rrdb_1_dense3_conv2[0][0]',
+                                                                          'rrdb_1_dense3_conv3[0][0]']
+
+ rrdb_1_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_1_dense3_concat3[0][0]']
+
+ rrdb_1_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_1_dense2_add[0][0]',
+ )                                                                        'rrdb_1_dense3_conv1[0][0]',
+                                                                          'rrdb_1_dense3_conv2[0][0]',
+                                                                          'rrdb_1_dense3_conv3[0][0]',
+                                                                          'rrdb_1_dense3_conv4[0][0]']
+
+ rrdb_1_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_1_dense3_concat4[0][0]']
+
+ rrdb_1_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_1_dense3_conv5[0][0]']
+
+ rrdb_1_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_1_dense2_add[0][0]',
+                                                                          'rrdb_1_dense3_scale[0][0]']
+
+ rrdb_1_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_1_dense3_add[0][0]']
+
+ rrdb_1_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_0_add[0][0]',
+                                                                          'rrdb_1_scale[0][0]']
+
+ rrdb_2_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_1_add[0][0]']
+
+ rrdb_2_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_1_add[0][0]',
+ )                                                                        'rrdb_2_dense1_conv1[0][0]']
+
+ rrdb_2_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_2_dense1_concat1[0][0]']
+
+ rrdb_2_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_1_add[0][0]',
+ )                                                                        'rrdb_2_dense1_conv1[0][0]',
+                                                                          'rrdb_2_dense1_conv2[0][0]']
+
+ rrdb_2_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_2_dense1_concat2[0][0]']
+
+ rrdb_2_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_1_add[0][0]',
+ )                                                                        'rrdb_2_dense1_conv1[0][0]',
+                                                                          'rrdb_2_dense1_conv2[0][0]',
+                                                                          'rrdb_2_dense1_conv3[0][0]']
+
+ rrdb_2_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_2_dense1_concat3[0][0]']
+
+ rrdb_2_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_1_add[0][0]',
+ )                                                                        'rrdb_2_dense1_conv1[0][0]',
+                                                                          'rrdb_2_dense1_conv2[0][0]',
+                                                                          'rrdb_2_dense1_conv3[0][0]',
+                                                                          'rrdb_2_dense1_conv4[0][0]']
+
+ rrdb_2_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_2_dense1_concat4[0][0]']
+
+ rrdb_2_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_2_dense1_conv5[0][0]']
+
+ rrdb_2_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_1_add[0][0]',
+                                                                          'rrdb_2_dense1_scale[0][0]']
+
+ rrdb_2_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_2_dense1_add[0][0]']
+
+ rrdb_2_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_2_dense1_add[0][0]',
+ )                                                                        'rrdb_2_dense2_conv1[0][0]']
+
+ rrdb_2_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_2_dense2_concat1[0][0]']
+
+ rrdb_2_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_2_dense1_add[0][0]',
+ )                                                                        'rrdb_2_dense2_conv1[0][0]',
+                                                                          'rrdb_2_dense2_conv2[0][0]']
+
+ rrdb_2_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_2_dense2_concat2[0][0]']
+
+ rrdb_2_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_2_dense1_add[0][0]',
+ )                                                                        'rrdb_2_dense2_conv1[0][0]',
+                                                                          'rrdb_2_dense2_conv2[0][0]',
+                                                                          'rrdb_2_dense2_conv3[0][0]']
+
+ rrdb_2_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_2_dense2_concat3[0][0]']
+
+ rrdb_2_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_2_dense1_add[0][0]',
+ )                                                                        'rrdb_2_dense2_conv1[0][0]',
+                                                                          'rrdb_2_dense2_conv2[0][0]',
+                                                                          'rrdb_2_dense2_conv3[0][0]',
+                                                                          'rrdb_2_dense2_conv4[0][0]']
+
+ rrdb_2_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_2_dense2_concat4[0][0]']
+
+ rrdb_2_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_2_dense2_conv5[0][0]']
+
+ rrdb_2_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_2_dense1_add[0][0]',
+                                                                          'rrdb_2_dense2_scale[0][0]']
+
+ rrdb_2_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_2_dense2_add[0][0]']
+
+ rrdb_2_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_2_dense2_add[0][0]',
+ )                                                                        'rrdb_2_dense3_conv1[0][0]']
+
+ rrdb_2_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_2_dense3_concat1[0][0]']
+
+ rrdb_2_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_2_dense2_add[0][0]',
+ )                                                                        'rrdb_2_dense3_conv1[0][0]',
+                                                                          'rrdb_2_dense3_conv2[0][0]']
+
+ rrdb_2_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_2_dense3_concat2[0][0]']
+
+ rrdb_2_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_2_dense2_add[0][0]',
+ )                                                                        'rrdb_2_dense3_conv1[0][0]',
+                                                                          'rrdb_2_dense3_conv2[0][0]',
+                                                                          'rrdb_2_dense3_conv3[0][0]']
+
+ rrdb_2_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_2_dense3_concat3[0][0]']
+
+ rrdb_2_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_2_dense2_add[0][0]',
+ )                                                                        'rrdb_2_dense3_conv1[0][0]',
+                                                                          'rrdb_2_dense3_conv2[0][0]',
+                                                                          'rrdb_2_dense3_conv3[0][0]',
+                                                                          'rrdb_2_dense3_conv4[0][0]']
+
+ rrdb_2_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_2_dense3_concat4[0][0]']
+
+ rrdb_2_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_2_dense3_conv5[0][0]']
+
+ rrdb_2_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_2_dense2_add[0][0]',
+                                                                          'rrdb_2_dense3_scale[0][0]']
+
+ rrdb_2_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_2_dense3_add[0][0]']
+
+ rrdb_2_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_1_add[0][0]',
+                                                                          'rrdb_2_scale[0][0]']
+
+ rrdb_3_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_2_add[0][0]']
+
+ rrdb_3_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_2_add[0][0]',
+ )                                                                        'rrdb_3_dense1_conv1[0][0]']
+
+ rrdb_3_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_3_dense1_concat1[0][0]']
+
+ rrdb_3_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_2_add[0][0]',
+ )                                                                        'rrdb_3_dense1_conv1[0][0]',
+                                                                          'rrdb_3_dense1_conv2[0][0]']
+
+ rrdb_3_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_3_dense1_concat2[0][0]']
+
+ rrdb_3_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_2_add[0][0]',
+ )                                                                        'rrdb_3_dense1_conv1[0][0]',
+                                                                          'rrdb_3_dense1_conv2[0][0]',
+                                                                          'rrdb_3_dense1_conv3[0][0]']
+
+ rrdb_3_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_3_dense1_concat3[0][0]']
+
+ rrdb_3_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_2_add[0][0]',
+ )                                                                        'rrdb_3_dense1_conv1[0][0]',
+                                                                          'rrdb_3_dense1_conv2[0][0]',
+                                                                          'rrdb_3_dense1_conv3[0][0]',
+                                                                          'rrdb_3_dense1_conv4[0][0]']
+
+ rrdb_3_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_3_dense1_concat4[0][0]']
+
+ rrdb_3_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_3_dense1_conv5[0][0]']
+
+ rrdb_3_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_2_add[0][0]',
+                                                                          'rrdb_3_dense1_scale[0][0]']
+
+ rrdb_3_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_3_dense1_add[0][0]']
+
+ rrdb_3_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_3_dense1_add[0][0]',
+ )                                                                        'rrdb_3_dense2_conv1[0][0]']
+
+ rrdb_3_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_3_dense2_concat1[0][0]']
+
+ rrdb_3_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_3_dense1_add[0][0]',
+ )                                                                        'rrdb_3_dense2_conv1[0][0]',
+                                                                          'rrdb_3_dense2_conv2[0][0]']
+
+ rrdb_3_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_3_dense2_concat2[0][0]']
+
+ rrdb_3_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_3_dense1_add[0][0]',
+ )                                                                        'rrdb_3_dense2_conv1[0][0]',
+                                                                          'rrdb_3_dense2_conv2[0][0]',
+                                                                          'rrdb_3_dense2_conv3[0][0]']
+
+ rrdb_3_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_3_dense2_concat3[0][0]']
+
+ rrdb_3_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_3_dense1_add[0][0]',
+ )                                                                        'rrdb_3_dense2_conv1[0][0]',
+                                                                          'rrdb_3_dense2_conv2[0][0]',
+                                                                          'rrdb_3_dense2_conv3[0][0]',
+                                                                          'rrdb_3_dense2_conv4[0][0]']
+
+ rrdb_3_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_3_dense2_concat4[0][0]']
+
+ rrdb_3_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_3_dense2_conv5[0][0]']
+
+ rrdb_3_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_3_dense1_add[0][0]',
+                                                                          'rrdb_3_dense2_scale[0][0]']
+
+ rrdb_3_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_3_dense2_add[0][0]']
+
+ rrdb_3_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_3_dense2_add[0][0]',
+ )                                                                        'rrdb_3_dense3_conv1[0][0]']
+
+ rrdb_3_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_3_dense3_concat1[0][0]']
+
+ rrdb_3_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_3_dense2_add[0][0]',
+ )                                                                        'rrdb_3_dense3_conv1[0][0]',
+                                                                          'rrdb_3_dense3_conv2[0][0]']
+
+ rrdb_3_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_3_dense3_concat2[0][0]']
+
+ rrdb_3_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_3_dense2_add[0][0]',
+ )                                                                        'rrdb_3_dense3_conv1[0][0]',
+                                                                          'rrdb_3_dense3_conv2[0][0]',
+                                                                          'rrdb_3_dense3_conv3[0][0]']
+
+ rrdb_3_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_3_dense3_concat3[0][0]']
+
+ rrdb_3_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_3_dense2_add[0][0]',
+ )                                                                        'rrdb_3_dense3_conv1[0][0]',
+                                                                          'rrdb_3_dense3_conv2[0][0]',
+                                                                          'rrdb_3_dense3_conv3[0][0]',
+                                                                          'rrdb_3_dense3_conv4[0][0]']
+
+ rrdb_3_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_3_dense3_concat4[0][0]']
+
+ rrdb_3_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_3_dense3_conv5[0][0]']
+
+ rrdb_3_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_3_dense2_add[0][0]',
+                                                                          'rrdb_3_dense3_scale[0][0]']
+
+ rrdb_3_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_3_dense3_add[0][0]']
+
+ rrdb_3_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_2_add[0][0]',
+                                                                          'rrdb_3_scale[0][0]']
+
+ rrdb_4_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_3_add[0][0]']
+
+ rrdb_4_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_3_add[0][0]',
+ )                                                                        'rrdb_4_dense1_conv1[0][0]']
+
+ rrdb_4_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_4_dense1_concat1[0][0]']
+
+ rrdb_4_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_3_add[0][0]',
+ )                                                                        'rrdb_4_dense1_conv1[0][0]',
+                                                                          'rrdb_4_dense1_conv2[0][0]']
+
+ rrdb_4_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_4_dense1_concat2[0][0]']
+
+ rrdb_4_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_3_add[0][0]',
+ )                                                                        'rrdb_4_dense1_conv1[0][0]',
+                                                                          'rrdb_4_dense1_conv2[0][0]',
+                                                                          'rrdb_4_dense1_conv3[0][0]']
+
+ rrdb_4_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_4_dense1_concat3[0][0]']
+
+ rrdb_4_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_3_add[0][0]',
+ )                                                                        'rrdb_4_dense1_conv1[0][0]',
+                                                                          'rrdb_4_dense1_conv2[0][0]',
+                                                                          'rrdb_4_dense1_conv3[0][0]',
+                                                                          'rrdb_4_dense1_conv4[0][0]']
+
+ rrdb_4_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_4_dense1_concat4[0][0]']
+
+ rrdb_4_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_4_dense1_conv5[0][0]']
+
+ rrdb_4_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_3_add[0][0]',
+                                                                          'rrdb_4_dense1_scale[0][0]']
+
+ rrdb_4_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_4_dense1_add[0][0]']
+
+ rrdb_4_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_4_dense1_add[0][0]',
+ )                                                                        'rrdb_4_dense2_conv1[0][0]']
+
+ rrdb_4_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_4_dense2_concat1[0][0]']
+
+ rrdb_4_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_4_dense1_add[0][0]',
+ )                                                                        'rrdb_4_dense2_conv1[0][0]',
+                                                                          'rrdb_4_dense2_conv2[0][0]']
+
+ rrdb_4_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_4_dense2_concat2[0][0]']
+
+ rrdb_4_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_4_dense1_add[0][0]',
+ )                                                                        'rrdb_4_dense2_conv1[0][0]',
+                                                                          'rrdb_4_dense2_conv2[0][0]',
+                                                                          'rrdb_4_dense2_conv3[0][0]']
+
+ rrdb_4_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_4_dense2_concat3[0][0]']
+
+ rrdb_4_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_4_dense1_add[0][0]',
+ )                                                                        'rrdb_4_dense2_conv1[0][0]',
+                                                                          'rrdb_4_dense2_conv2[0][0]',
+                                                                          'rrdb_4_dense2_conv3[0][0]',
+                                                                          'rrdb_4_dense2_conv4[0][0]']
+
+ rrdb_4_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_4_dense2_concat4[0][0]']
+
+ rrdb_4_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_4_dense2_conv5[0][0]']
+
+ rrdb_4_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_4_dense1_add[0][0]',
+                                                                          'rrdb_4_dense2_scale[0][0]']
+
+ rrdb_4_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_4_dense2_add[0][0]']
+
+ rrdb_4_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_4_dense2_add[0][0]',
+ )                                                                        'rrdb_4_dense3_conv1[0][0]']
+
+ rrdb_4_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_4_dense3_concat1[0][0]']
+
+ rrdb_4_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_4_dense2_add[0][0]',
+ )                                                                        'rrdb_4_dense3_conv1[0][0]',
+                                                                          'rrdb_4_dense3_conv2[0][0]']
+
+ rrdb_4_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_4_dense3_concat2[0][0]']
+
+ rrdb_4_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_4_dense2_add[0][0]',
+ )                                                                        'rrdb_4_dense3_conv1[0][0]',
+                                                                          'rrdb_4_dense3_conv2[0][0]',
+                                                                          'rrdb_4_dense3_conv3[0][0]']
+
+ rrdb_4_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_4_dense3_concat3[0][0]']
+
+ rrdb_4_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_4_dense2_add[0][0]',
+ )                                                                        'rrdb_4_dense3_conv1[0][0]',
+                                                                          'rrdb_4_dense3_conv2[0][0]',
+                                                                          'rrdb_4_dense3_conv3[0][0]',
+                                                                          'rrdb_4_dense3_conv4[0][0]']
+
+ rrdb_4_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_4_dense3_concat4[0][0]']
+
+ rrdb_4_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_4_dense3_conv5[0][0]']
+
+ rrdb_4_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_4_dense2_add[0][0]',
+                                                                          'rrdb_4_dense3_scale[0][0]']
+
+ rrdb_4_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_4_dense3_add[0][0]']
+
+ rrdb_4_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_3_add[0][0]',
+                                                                          'rrdb_4_scale[0][0]']
+
+ rrdb_5_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_4_add[0][0]']
+
+ rrdb_5_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_4_add[0][0]',
+ )                                                                        'rrdb_5_dense1_conv1[0][0]']
+
+ rrdb_5_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_5_dense1_concat1[0][0]']
+
+ rrdb_5_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_4_add[0][0]',
+ )                                                                        'rrdb_5_dense1_conv1[0][0]',
+                                                                          'rrdb_5_dense1_conv2[0][0]']
+
+ rrdb_5_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_5_dense1_concat2[0][0]']
+
+ rrdb_5_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_4_add[0][0]',
+ )                                                                        'rrdb_5_dense1_conv1[0][0]',
+                                                                          'rrdb_5_dense1_conv2[0][0]',
+                                                                          'rrdb_5_dense1_conv3[0][0]']
+
+ rrdb_5_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_5_dense1_concat3[0][0]']
+
+ rrdb_5_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_4_add[0][0]',
+ )                                                                        'rrdb_5_dense1_conv1[0][0]',
+                                                                          'rrdb_5_dense1_conv2[0][0]',
+                                                                          'rrdb_5_dense1_conv3[0][0]',
+                                                                          'rrdb_5_dense1_conv4[0][0]']
+
+ rrdb_5_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_5_dense1_concat4[0][0]']
+
+ rrdb_5_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_5_dense1_conv5[0][0]']
+
+ rrdb_5_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_4_add[0][0]',
+                                                                          'rrdb_5_dense1_scale[0][0]']
+
+ rrdb_5_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_5_dense1_add[0][0]']
+
+ rrdb_5_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_5_dense1_add[0][0]',
+ )                                                                        'rrdb_5_dense2_conv1[0][0]']
+
+ rrdb_5_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_5_dense2_concat1[0][0]']
+
+ rrdb_5_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_5_dense1_add[0][0]',
+ )                                                                        'rrdb_5_dense2_conv1[0][0]',
+                                                                          'rrdb_5_dense2_conv2[0][0]']
+
+ rrdb_5_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_5_dense2_concat2[0][0]']
+
+ rrdb_5_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_5_dense1_add[0][0]',
+ )                                                                        'rrdb_5_dense2_conv1[0][0]',
+                                                                          'rrdb_5_dense2_conv2[0][0]',
+                                                                          'rrdb_5_dense2_conv3[0][0]']
+
+ rrdb_5_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_5_dense2_concat3[0][0]']
+
+ rrdb_5_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_5_dense1_add[0][0]',
+ )                                                                        'rrdb_5_dense2_conv1[0][0]',
+                                                                          'rrdb_5_dense2_conv2[0][0]',
+                                                                          'rrdb_5_dense2_conv3[0][0]',
+                                                                          'rrdb_5_dense2_conv4[0][0]']
+
+ rrdb_5_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_5_dense2_concat4[0][0]']
+
+ rrdb_5_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_5_dense2_conv5[0][0]']
+
+ rrdb_5_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_5_dense1_add[0][0]',
+                                                                          'rrdb_5_dense2_scale[0][0]']
+
+ rrdb_5_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_5_dense2_add[0][0]']
+
+ rrdb_5_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_5_dense2_add[0][0]',
+ )                                                                        'rrdb_5_dense3_conv1[0][0]']
+
+ rrdb_5_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_5_dense3_concat1[0][0]']
+
+ rrdb_5_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_5_dense2_add[0][0]',
+ )                                                                        'rrdb_5_dense3_conv1[0][0]',
+                                                                          'rrdb_5_dense3_conv2[0][0]']
+
+ rrdb_5_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_5_dense3_concat2[0][0]']
+
+ rrdb_5_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_5_dense2_add[0][0]',
+ )                                                                        'rrdb_5_dense3_conv1[0][0]',
+                                                                          'rrdb_5_dense3_conv2[0][0]',
+                                                                          'rrdb_5_dense3_conv3[0][0]']
+
+ rrdb_5_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_5_dense3_concat3[0][0]']
+
+ rrdb_5_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_5_dense2_add[0][0]',
+ )                                                                        'rrdb_5_dense3_conv1[0][0]',
+                                                                          'rrdb_5_dense3_conv2[0][0]',
+                                                                          'rrdb_5_dense3_conv3[0][0]',
+                                                                          'rrdb_5_dense3_conv4[0][0]']
+
+ rrdb_5_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_5_dense3_concat4[0][0]']
+
+ rrdb_5_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_5_dense3_conv5[0][0]']
+
+ rrdb_5_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_5_dense2_add[0][0]',
+                                                                          'rrdb_5_dense3_scale[0][0]']
+
+ rrdb_5_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_5_dense3_add[0][0]']
+
+ rrdb_5_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_4_add[0][0]',
+                                                                          'rrdb_5_scale[0][0]']
+
+ rrdb_6_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_5_add[0][0]']
+
+ rrdb_6_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_5_add[0][0]',
+ )                                                                        'rrdb_6_dense1_conv1[0][0]']
+
+ rrdb_6_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_6_dense1_concat1[0][0]']
+
+ rrdb_6_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_5_add[0][0]',
+ )                                                                        'rrdb_6_dense1_conv1[0][0]',
+                                                                          'rrdb_6_dense1_conv2[0][0]']
+
+ rrdb_6_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_6_dense1_concat2[0][0]']
+
+ rrdb_6_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_5_add[0][0]',
+ )                                                                        'rrdb_6_dense1_conv1[0][0]',
+                                                                          'rrdb_6_dense1_conv2[0][0]',
+                                                                          'rrdb_6_dense1_conv3[0][0]']
+
+ rrdb_6_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_6_dense1_concat3[0][0]']
+
+ rrdb_6_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_5_add[0][0]',
+ )                                                                        'rrdb_6_dense1_conv1[0][0]',
+                                                                          'rrdb_6_dense1_conv2[0][0]',
+                                                                          'rrdb_6_dense1_conv3[0][0]',
+                                                                          'rrdb_6_dense1_conv4[0][0]']
+
+ rrdb_6_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_6_dense1_concat4[0][0]']
+
+ rrdb_6_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_6_dense1_conv5[0][0]']
+
+ rrdb_6_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_5_add[0][0]',
+                                                                          'rrdb_6_dense1_scale[0][0]']
+
+ rrdb_6_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_6_dense1_add[0][0]']
+
+ rrdb_6_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_6_dense1_add[0][0]',
+ )                                                                        'rrdb_6_dense2_conv1[0][0]']
+
+ rrdb_6_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_6_dense2_concat1[0][0]']
+
+ rrdb_6_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_6_dense1_add[0][0]',
+ )                                                                        'rrdb_6_dense2_conv1[0][0]',
+                                                                          'rrdb_6_dense2_conv2[0][0]']
+
+ rrdb_6_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_6_dense2_concat2[0][0]']
+
+ rrdb_6_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_6_dense1_add[0][0]',
+ )                                                                        'rrdb_6_dense2_conv1[0][0]',
+                                                                          'rrdb_6_dense2_conv2[0][0]',
+                                                                          'rrdb_6_dense2_conv3[0][0]']
+
+ rrdb_6_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_6_dense2_concat3[0][0]']
+
+ rrdb_6_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_6_dense1_add[0][0]',
+ )                                                                        'rrdb_6_dense2_conv1[0][0]',
+                                                                          'rrdb_6_dense2_conv2[0][0]',
+                                                                          'rrdb_6_dense2_conv3[0][0]',
+                                                                          'rrdb_6_dense2_conv4[0][0]']
+
+ rrdb_6_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_6_dense2_concat4[0][0]']
+
+ rrdb_6_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_6_dense2_conv5[0][0]']
+
+ rrdb_6_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_6_dense1_add[0][0]',
+                                                                          'rrdb_6_dense2_scale[0][0]']
+
+ rrdb_6_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_6_dense2_add[0][0]']
+
+ rrdb_6_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_6_dense2_add[0][0]',
+ )                                                                        'rrdb_6_dense3_conv1[0][0]']
+
+ rrdb_6_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_6_dense3_concat1[0][0]']
+
+ rrdb_6_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_6_dense2_add[0][0]',
+ )                                                                        'rrdb_6_dense3_conv1[0][0]',
+                                                                          'rrdb_6_dense3_conv2[0][0]']
+
+ rrdb_6_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_6_dense3_concat2[0][0]']
+
+ rrdb_6_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_6_dense2_add[0][0]',
+ )                                                                        'rrdb_6_dense3_conv1[0][0]',
+                                                                          'rrdb_6_dense3_conv2[0][0]',
+                                                                          'rrdb_6_dense3_conv3[0][0]']
+
+ rrdb_6_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_6_dense3_concat3[0][0]']
+
+ rrdb_6_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_6_dense2_add[0][0]',
+ )                                                                        'rrdb_6_dense3_conv1[0][0]',
+                                                                          'rrdb_6_dense3_conv2[0][0]',
+                                                                          'rrdb_6_dense3_conv3[0][0]',
+                                                                          'rrdb_6_dense3_conv4[0][0]']
+
+ rrdb_6_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_6_dense3_concat4[0][0]']
+
+ rrdb_6_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_6_dense3_conv5[0][0]']
+
+ rrdb_6_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_6_dense2_add[0][0]',
+                                                                          'rrdb_6_dense3_scale[0][0]']
+
+ rrdb_6_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_6_dense3_add[0][0]']
+
+ rrdb_6_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_5_add[0][0]',
+                                                                          'rrdb_6_scale[0][0]']
+
+ rrdb_7_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_6_add[0][0]']
+
+ rrdb_7_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_6_add[0][0]',
+ )                                                                        'rrdb_7_dense1_conv1[0][0]']
+
+ rrdb_7_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_7_dense1_concat1[0][0]']
+
+ rrdb_7_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_6_add[0][0]',
+ )                                                                        'rrdb_7_dense1_conv1[0][0]',
+                                                                          'rrdb_7_dense1_conv2[0][0]']
+
+ rrdb_7_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_7_dense1_concat2[0][0]']
+
+ rrdb_7_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_6_add[0][0]',
+ )                                                                        'rrdb_7_dense1_conv1[0][0]',
+                                                                          'rrdb_7_dense1_conv2[0][0]',
+                                                                          'rrdb_7_dense1_conv3[0][0]']
+
+ rrdb_7_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_7_dense1_concat3[0][0]']
+
+ rrdb_7_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_6_add[0][0]',
+ )                                                                        'rrdb_7_dense1_conv1[0][0]',
+                                                                          'rrdb_7_dense1_conv2[0][0]',
+                                                                          'rrdb_7_dense1_conv3[0][0]',
+                                                                          'rrdb_7_dense1_conv4[0][0]']
+
+ rrdb_7_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_7_dense1_concat4[0][0]']
+
+ rrdb_7_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_7_dense1_conv5[0][0]']
+
+ rrdb_7_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_6_add[0][0]',
+                                                                          'rrdb_7_dense1_scale[0][0]']
+
+ rrdb_7_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_7_dense1_add[0][0]']
+
+ rrdb_7_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_7_dense1_add[0][0]',
+ )                                                                        'rrdb_7_dense2_conv1[0][0]']
+
+ rrdb_7_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_7_dense2_concat1[0][0]']
+
+ rrdb_7_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_7_dense1_add[0][0]',
+ )                                                                        'rrdb_7_dense2_conv1[0][0]',
+                                                                          'rrdb_7_dense2_conv2[0][0]']
+
+ rrdb_7_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_7_dense2_concat2[0][0]']
+
+ rrdb_7_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_7_dense1_add[0][0]',
+ )                                                                        'rrdb_7_dense2_conv1[0][0]',
+                                                                          'rrdb_7_dense2_conv2[0][0]',
+                                                                          'rrdb_7_dense2_conv3[0][0]']
+
+ rrdb_7_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_7_dense2_concat3[0][0]']
+
+ rrdb_7_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_7_dense1_add[0][0]',
+ )                                                                        'rrdb_7_dense2_conv1[0][0]',
+                                                                          'rrdb_7_dense2_conv2[0][0]',
+                                                                          'rrdb_7_dense2_conv3[0][0]',
+                                                                          'rrdb_7_dense2_conv4[0][0]']
+
+ rrdb_7_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_7_dense2_concat4[0][0]']
+
+ rrdb_7_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_7_dense2_conv5[0][0]']
+
+ rrdb_7_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_7_dense1_add[0][0]',
+                                                                          'rrdb_7_dense2_scale[0][0]']
+
+ rrdb_7_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_7_dense2_add[0][0]']
+
+ rrdb_7_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_7_dense2_add[0][0]',
+ )                                                                        'rrdb_7_dense3_conv1[0][0]']
+
+ rrdb_7_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_7_dense3_concat1[0][0]']
+
+ rrdb_7_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_7_dense2_add[0][0]',
+ )                                                                        'rrdb_7_dense3_conv1[0][0]',
+                                                                          'rrdb_7_dense3_conv2[0][0]']
+
+ rrdb_7_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_7_dense3_concat2[0][0]']
+
+ rrdb_7_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_7_dense2_add[0][0]',
+ )                                                                        'rrdb_7_dense3_conv1[0][0]',
+                                                                          'rrdb_7_dense3_conv2[0][0]',
+                                                                          'rrdb_7_dense3_conv3[0][0]']
+
+ rrdb_7_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_7_dense3_concat3[0][0]']
+
+ rrdb_7_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_7_dense2_add[0][0]',
+ )                                                                        'rrdb_7_dense3_conv1[0][0]',
+                                                                          'rrdb_7_dense3_conv2[0][0]',
+                                                                          'rrdb_7_dense3_conv3[0][0]',
+                                                                          'rrdb_7_dense3_conv4[0][0]']
+
+ rrdb_7_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_7_dense3_concat4[0][0]']
+
+ rrdb_7_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_7_dense3_conv5[0][0]']
+
+ rrdb_7_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_7_dense2_add[0][0]',
+                                                                          'rrdb_7_dense3_scale[0][0]']
+
+ rrdb_7_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_7_dense3_add[0][0]']
+
+ rrdb_7_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_6_add[0][0]',
+                                                                          'rrdb_7_scale[0][0]']
+
+ rrdb_8_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_7_add[0][0]']
+
+ rrdb_8_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_7_add[0][0]',
+ )                                                                        'rrdb_8_dense1_conv1[0][0]']
+
+ rrdb_8_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_8_dense1_concat1[0][0]']
+
+ rrdb_8_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_7_add[0][0]',
+ )                                                                        'rrdb_8_dense1_conv1[0][0]',
+                                                                          'rrdb_8_dense1_conv2[0][0]']
+
+ rrdb_8_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_8_dense1_concat2[0][0]']
+
+ rrdb_8_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_7_add[0][0]',
+ )                                                                        'rrdb_8_dense1_conv1[0][0]',
+                                                                          'rrdb_8_dense1_conv2[0][0]',
+                                                                          'rrdb_8_dense1_conv3[0][0]']
+
+ rrdb_8_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_8_dense1_concat3[0][0]']
+
+ rrdb_8_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_7_add[0][0]',
+ )                                                                        'rrdb_8_dense1_conv1[0][0]',
+                                                                          'rrdb_8_dense1_conv2[0][0]',
+                                                                          'rrdb_8_dense1_conv3[0][0]',
+                                                                          'rrdb_8_dense1_conv4[0][0]']
+
+ rrdb_8_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_8_dense1_concat4[0][0]']
+
+ rrdb_8_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_8_dense1_conv5[0][0]']
+
+ rrdb_8_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_7_add[0][0]',
+                                                                          'rrdb_8_dense1_scale[0][0]']
+
+ rrdb_8_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_8_dense1_add[0][0]']
+
+ rrdb_8_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_8_dense1_add[0][0]',
+ )                                                                        'rrdb_8_dense2_conv1[0][0]']
+
+ rrdb_8_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_8_dense2_concat1[0][0]']
+
+ rrdb_8_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_8_dense1_add[0][0]',
+ )                                                                        'rrdb_8_dense2_conv1[0][0]',
+                                                                          'rrdb_8_dense2_conv2[0][0]']
+
+ rrdb_8_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_8_dense2_concat2[0][0]']
+
+ rrdb_8_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_8_dense1_add[0][0]',
+ )                                                                        'rrdb_8_dense2_conv1[0][0]',
+                                                                          'rrdb_8_dense2_conv2[0][0]',
+                                                                          'rrdb_8_dense2_conv3[0][0]']
+
+ rrdb_8_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_8_dense2_concat3[0][0]']
+
+ rrdb_8_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_8_dense1_add[0][0]',
+ )                                                                        'rrdb_8_dense2_conv1[0][0]',
+                                                                          'rrdb_8_dense2_conv2[0][0]',
+                                                                          'rrdb_8_dense2_conv3[0][0]',
+                                                                          'rrdb_8_dense2_conv4[0][0]']
+
+ rrdb_8_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_8_dense2_concat4[0][0]']
+
+ rrdb_8_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_8_dense2_conv5[0][0]']
+
+ rrdb_8_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_8_dense1_add[0][0]',
+                                                                          'rrdb_8_dense2_scale[0][0]']
+
+ rrdb_8_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_8_dense2_add[0][0]']
+
+ rrdb_8_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_8_dense2_add[0][0]',
+ )                                                                        'rrdb_8_dense3_conv1[0][0]']
+
+ rrdb_8_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_8_dense3_concat1[0][0]']
+
+ rrdb_8_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_8_dense2_add[0][0]',
+ )                                                                        'rrdb_8_dense3_conv1[0][0]',
+                                                                          'rrdb_8_dense3_conv2[0][0]']
+
+ rrdb_8_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_8_dense3_concat2[0][0]']
+
+ rrdb_8_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_8_dense2_add[0][0]',
+ )                                                                        'rrdb_8_dense3_conv1[0][0]',
+                                                                          'rrdb_8_dense3_conv2[0][0]',
+                                                                          'rrdb_8_dense3_conv3[0][0]']
+
+ rrdb_8_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_8_dense3_concat3[0][0]']
+
+ rrdb_8_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_8_dense2_add[0][0]',
+ )                                                                        'rrdb_8_dense3_conv1[0][0]',
+                                                                          'rrdb_8_dense3_conv2[0][0]',
+                                                                          'rrdb_8_dense3_conv3[0][0]',
+                                                                          'rrdb_8_dense3_conv4[0][0]']
+
+ rrdb_8_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_8_dense3_concat4[0][0]']
+
+ rrdb_8_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_8_dense3_conv5[0][0]']
+
+ rrdb_8_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_8_dense2_add[0][0]',
+                                                                          'rrdb_8_dense3_scale[0][0]']
+
+ rrdb_8_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_8_dense3_add[0][0]']
+
+ rrdb_8_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_7_add[0][0]',
+                                                                          'rrdb_8_scale[0][0]']
+
+ rrdb_9_dense1_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_8_add[0][0]']
+
+ rrdb_9_dense1_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_8_add[0][0]',
+ )                                                                        'rrdb_9_dense1_conv1[0][0]']
+
+ rrdb_9_dense1_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_9_dense1_concat1[0][0]']
+
+ rrdb_9_dense1_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_8_add[0][0]',
+ )                                                                        'rrdb_9_dense1_conv1[0][0]',
+                                                                          'rrdb_9_dense1_conv2[0][0]']
+
+ rrdb_9_dense1_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_9_dense1_concat2[0][0]']
+
+ rrdb_9_dense1_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_8_add[0][0]',
+ )                                                                        'rrdb_9_dense1_conv1[0][0]',
+                                                                          'rrdb_9_dense1_conv2[0][0]',
+                                                                          'rrdb_9_dense1_conv3[0][0]']
+
+ rrdb_9_dense1_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_9_dense1_concat3[0][0]']
+
+ rrdb_9_dense1_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_8_add[0][0]',
+ )                                                                        'rrdb_9_dense1_conv1[0][0]',
+                                                                          'rrdb_9_dense1_conv2[0][0]',
+                                                                          'rrdb_9_dense1_conv3[0][0]',
+                                                                          'rrdb_9_dense1_conv4[0][0]']
+
+ rrdb_9_dense1_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_9_dense1_concat4[0][0]']
+
+ rrdb_9_dense1_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_9_dense1_conv5[0][0]']
+
+ rrdb_9_dense1_add (Add)            (None, 24, 24, 64)      0            ['rrdb_8_add[0][0]',
+                                                                          'rrdb_9_dense1_scale[0][0]']
+
+ rrdb_9_dense2_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_9_dense1_add[0][0]']
+
+ rrdb_9_dense2_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_9_dense1_add[0][0]',
+ )                                                                        'rrdb_9_dense2_conv1[0][0]']
+
+ rrdb_9_dense2_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_9_dense2_concat1[0][0]']
+
+ rrdb_9_dense2_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_9_dense1_add[0][0]',
+ )                                                                        'rrdb_9_dense2_conv1[0][0]',
+                                                                          'rrdb_9_dense2_conv2[0][0]']
+
+ rrdb_9_dense2_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_9_dense2_concat2[0][0]']
+
+ rrdb_9_dense2_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_9_dense1_add[0][0]',
+ )                                                                        'rrdb_9_dense2_conv1[0][0]',
+                                                                          'rrdb_9_dense2_conv2[0][0]',
+                                                                          'rrdb_9_dense2_conv3[0][0]']
+
+ rrdb_9_dense2_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_9_dense2_concat3[0][0]']
+
+ rrdb_9_dense2_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_9_dense1_add[0][0]',
+ )                                                                        'rrdb_9_dense2_conv1[0][0]',
+                                                                          'rrdb_9_dense2_conv2[0][0]',
+                                                                          'rrdb_9_dense2_conv3[0][0]',
+                                                                          'rrdb_9_dense2_conv4[0][0]']
+
+ rrdb_9_dense2_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_9_dense2_concat4[0][0]']
+
+ rrdb_9_dense2_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_9_dense2_conv5[0][0]']
+
+ rrdb_9_dense2_add (Add)            (None, 24, 24, 64)      0            ['rrdb_9_dense1_add[0][0]',
+                                                                          'rrdb_9_dense2_scale[0][0]']
+
+ rrdb_9_dense3_conv1 (Conv2D)       (None, 24, 24, 16)      9232         ['rrdb_9_dense2_add[0][0]']
+
+ rrdb_9_dense3_concat1 (Concatenate  (None, 24, 24, 80)     0            ['rrdb_9_dense2_add[0][0]',
+ )                                                                        'rrdb_9_dense3_conv1[0][0]']
+
+ rrdb_9_dense3_conv2 (Conv2D)       (None, 24, 24, 16)      11536        ['rrdb_9_dense3_concat1[0][0]']
+
+ rrdb_9_dense3_concat2 (Concatenate  (None, 24, 24, 96)     0            ['rrdb_9_dense2_add[0][0]',
+ )                                                                        'rrdb_9_dense3_conv1[0][0]',
+                                                                          'rrdb_9_dense3_conv2[0][0]']
+
+ rrdb_9_dense3_conv3 (Conv2D)       (None, 24, 24, 16)      13840        ['rrdb_9_dense3_concat2[0][0]']
+
+ rrdb_9_dense3_concat3 (Concatenate  (None, 24, 24, 112)    0            ['rrdb_9_dense2_add[0][0]',
+ )                                                                        'rrdb_9_dense3_conv1[0][0]',
+                                                                          'rrdb_9_dense3_conv2[0][0]',
+                                                                          'rrdb_9_dense3_conv3[0][0]']
+
+ rrdb_9_dense3_conv4 (Conv2D)       (None, 24, 24, 16)      16144        ['rrdb_9_dense3_concat3[0][0]']
+
+ rrdb_9_dense3_concat4 (Concatenate  (None, 24, 24, 128)    0            ['rrdb_9_dense2_add[0][0]',
+ )                                                                        'rrdb_9_dense3_conv1[0][0]',
+                                                                          'rrdb_9_dense3_conv2[0][0]',
+                                                                          'rrdb_9_dense3_conv3[0][0]',
+                                                                          'rrdb_9_dense3_conv4[0][0]']
+
+ rrdb_9_dense3_conv5 (Conv2D)       (None, 24, 24, 64)      73792        ['rrdb_9_dense3_concat4[0][0]']
+
+ rrdb_9_dense3_scale (Lambda)       (None, 24, 24, 64)      0            ['rrdb_9_dense3_conv5[0][0]']
+
+ rrdb_9_dense3_add (Add)            (None, 24, 24, 64)      0            ['rrdb_9_dense2_add[0][0]',
+                                                                          'rrdb_9_dense3_scale[0][0]']
+
+ rrdb_9_scale (Lambda)              (None, 24, 24, 64)      0            ['rrdb_9_dense3_add[0][0]']
+
+ rrdb_9_add (Add)                   (None, 24, 24, 64)      0            ['rrdb_8_add[0][0]',
+                                                                          'rrdb_9_scale[0][0]']
+
+ rrdb_10_dense1_conv1 (Conv2D)      (None, 24, 24, 16)      9232         ['rrdb_9_add[0][0]']
+
+ rrdb_10_dense1_concat1 (Concatenat  (None, 24, 24, 80)     0            ['rrdb_9_add[0][0]',
+ e)                                                                       'rrdb_10_dense1_conv1[0][0]']
+
+ rrdb_10_dense1_conv2 (Conv2D)      (None, 24, 24, 16)      11536        ['rrdb_10_dense1_concat1[0][0]']
+
+ rrdb_10_dense1_concat2 (Concatenat  (None, 24, 24, 96)     0            ['rrdb_9_add[0][0]',
+ e)                                                                       'rrdb_10_dense1_conv1[0][0]',
+                                                                          'rrdb_10_dense1_conv2[0][0]']
+
+ rrdb_10_dense1_conv3 (Conv2D)      (None, 24, 24, 16)      13840        ['rrdb_10_dense1_concat2[0][0]']
+
+ rrdb_10_dense1_concat3 (Concatenat  (None, 24, 24, 112)    0            ['rrdb_9_add[0][0]',
+ e)                                                                       'rrdb_10_dense1_conv1[0][0]',
+                                                                          'rrdb_10_dense1_conv2[0][0]',
+                                                                          'rrdb_10_dense1_conv3[0][0]']
+
+ rrdb_10_dense1_conv4 (Conv2D)      (None, 24, 24, 16)      16144        ['rrdb_10_dense1_concat3[0][0]']
+
+ rrdb_10_dense1_concat4 (Concatenat  (None, 24, 24, 128)    0            ['rrdb_9_add[0][0]',
+ e)                                                                       'rrdb_10_dense1_conv1[0][0]',
+                                                                          'rrdb_10_dense1_conv2[0][0]',
+                                                                          'rrdb_10_dense1_conv3[0][0]',
+                                                                          'rrdb_10_dense1_conv4[0][0]']
+
+ rrdb_10_dense1_conv5 (Conv2D)      (None, 24, 24, 64)      73792        ['rrdb_10_dense1_concat4[0][0]']
+
+ rrdb_10_dense1_scale (Lambda)      (None, 24, 24, 64)      0            ['rrdb_10_dense1_conv5[0][0]']
+
+ rrdb_10_dense1_add (Add)           (None, 24, 24, 64)      0            ['rrdb_9_add[0][0]',
+                                                                          'rrdb_10_dense1_scale[0][0]']
+
+ rrdb_10_dense2_conv1 (Conv2D)      (None, 24, 24, 16)      9232         ['rrdb_10_dense1_add[0][0]']
+
+ rrdb_10_dense2_concat1 (Concatenat  (None, 24, 24, 80)     0            ['rrdb_10_dense1_add[0][0]',
+ e)                                                                       'rrdb_10_dense2_conv1[0][0]']
+
+ rrdb_10_dense2_conv2 (Conv2D)      (None, 24, 24, 16)      11536        ['rrdb_10_dense2_concat1[0][0]']
+
+ rrdb_10_dense2_concat2 (Concatenat  (None, 24, 24, 96)     0            ['rrdb_10_dense1_add[0][0]',
+ e)                                                                       'rrdb_10_dense2_conv1[0][0]',
+                                                                          'rrdb_10_dense2_conv2[0][0]']
+
+ rrdb_10_dense2_conv3 (Conv2D)      (None, 24, 24, 16)      13840        ['rrdb_10_dense2_concat2[0][0]']
+
+ rrdb_10_dense2_concat3 (Concatenat  (None, 24, 24, 112)    0            ['rrdb_10_dense1_add[0][0]',
+ e)                                                                       'rrdb_10_dense2_conv1[0][0]',
+                                                                          'rrdb_10_dense2_conv2[0][0]',
+                                                                          'rrdb_10_dense2_conv3[0][0]']
+
+ rrdb_10_dense2_conv4 (Conv2D)      (None, 24, 24, 16)      16144        ['rrdb_10_dense2_concat3[0][0]']
+
+ rrdb_10_dense2_concat4 (Concatenat  (None, 24, 24, 128)    0            ['rrdb_10_dense1_add[0][0]',
+ e)                                                                       'rrdb_10_dense2_conv1[0][0]',
+                                                                          'rrdb_10_dense2_conv2[0][0]',
+                                                                          'rrdb_10_dense2_conv3[0][0]',
+                                                                          'rrdb_10_dense2_conv4[0][0]']
+
+ rrdb_10_dense2_conv5 (Conv2D)      (None, 24, 24, 64)      73792        ['rrdb_10_dense2_concat4[0][0]']
+
+ rrdb_10_dense2_scale (Lambda)      (None, 24, 24, 64)      0            ['rrdb_10_dense2_conv5[0][0]']
+
+ rrdb_10_dense2_add (Add)           (None, 24, 24, 64)      0            ['rrdb_10_dense1_add[0][0]',
+                                                                          'rrdb_10_dense2_scale[0][0]']
+
+ rrdb_10_dense3_conv1 (Conv2D)      (None, 24, 24, 16)      9232         ['rrdb_10_dense2_add[0][0]']
+
+ rrdb_10_dense3_concat1 (Concatenat  (None, 24, 24, 80)     0            ['rrdb_10_dense2_add[0][0]',
+ e)                                                                       'rrdb_10_dense3_conv1[0][0]']
+
+ rrdb_10_dense3_conv2 (Conv2D)      (None, 24, 24, 16)      11536        ['rrdb_10_dense3_concat1[0][0]']
+
+ rrdb_10_dense3_concat2 (Concatenat  (None, 24, 24, 96)     0            ['rrdb_10_dense2_add[0][0]',
+ e)                                                                       'rrdb_10_dense3_conv1[0][0]',
+                                                                          'rrdb_10_dense3_conv2[0][0]']
+
+ rrdb_10_dense3_conv3 (Conv2D)      (None, 24, 24, 16)      13840        ['rrdb_10_dense3_concat2[0][0]']
+
+ rrdb_10_dense3_concat3 (Concatenat  (None, 24, 24, 112)    0            ['rrdb_10_dense2_add[0][0]',
+ e)                                                                       'rrdb_10_dense3_conv1[0][0]',
+                                                                          'rrdb_10_dense3_conv2[0][0]',
+                                                                          'rrdb_10_dense3_conv3[0][0]']
+
+ rrdb_10_dense3_conv4 (Conv2D)      (None, 24, 24, 16)      16144        ['rrdb_10_dense3_concat3[0][0]']
+
+ rrdb_10_dense3_concat4 (Concatenat  (None, 24, 24, 128)    0            ['rrdb_10_dense2_add[0][0]',
+ e)                                                                       'rrdb_10_dense3_conv1[0][0]',
+                                                                          'rrdb_10_dense3_conv2[0][0]',
+                                                                          'rrdb_10_dense3_conv3[0][0]',
+                                                                          'rrdb_10_dense3_conv4[0][0]']
+
+ rrdb_10_dense3_conv5 (Conv2D)      (None, 24, 24, 64)      73792        ['rrdb_10_dense3_concat4[0][0]']
+
+ rrdb_10_dense3_scale (Lambda)      (None, 24, 24, 64)      0            ['rrdb_10_dense3_conv5[0][0]']
+
+ rrdb_10_dense3_add (Add)           (None, 24, 24, 64)      0            ['rrdb_10_dense2_add[0][0]',
+                                                                          'rrdb_10_dense3_scale[0][0]']
+
+ rrdb_10_scale (Lambda)             (None, 24, 24, 64)      0            ['rrdb_10_dense3_add[0][0]']
+
+ rrdb_10_add (Add)                  (None, 24, 24, 64)      0            ['rrdb_9_add[0][0]',
+                                                                          'rrdb_10_scale[0][0]']
+
+ rrdb_11_dense1_conv1 (Conv2D)      (None, 24, 24, 16)      9232         ['rrdb_10_add[0][0]']
+
+ rrdb_11_dense1_concat1 (Concatenat  (None, 24, 24, 80)     0            ['rrdb_10_add[0][0]',
+ e)                                                                       'rrdb_11_dense1_conv1[0][0]']
+
+ rrdb_11_dense1_conv2 (Conv2D)      (None, 24, 24, 16)      11536        ['rrdb_11_dense1_concat1[0][0]']
+
+ rrdb_11_dense1_concat2 (Concatenat  (None, 24, 24, 96)     0            ['rrdb_10_add[0][0]',
+ e)                                                                       'rrdb_11_dense1_conv1[0][0]',
+                                                                          'rrdb_11_dense1_conv2[0][0]']
+
+ rrdb_11_dense1_conv3 (Conv2D)      (None, 24, 24, 16)      13840        ['rrdb_11_dense1_concat2[0][0]']
+
+ rrdb_11_dense1_concat3 (Concatenat  (None, 24, 24, 112)    0            ['rrdb_10_add[0][0]',
+ e)                                                                       'rrdb_11_dense1_conv1[0][0]',
+                                                                          'rrdb_11_dense1_conv2[0][0]',
+                                                                          'rrdb_11_dense1_conv3[0][0]']
+
+ rrdb_11_dense1_conv4 (Conv2D)      (None, 24, 24, 16)      16144        ['rrdb_11_dense1_concat3[0][0]']
+
+ rrdb_11_dense1_concat4 (Concatenat  (None, 24, 24, 128)    0            ['rrdb_10_add[0][0]',
+ e)                                                                       'rrdb_11_dense1_conv1[0][0]',
+                                                                          'rrdb_11_dense1_conv2[0][0]',
+                                                                          'rrdb_11_dense1_conv3[0][0]',
+                                                                          'rrdb_11_dense1_conv4[0][0]']
+
+ rrdb_11_dense1_conv5 (Conv2D)      (None, 24, 24, 64)      73792        ['rrdb_11_dense1_concat4[0][0]']
+
+ rrdb_11_dense1_scale (Lambda)      (None, 24, 24, 64)      0            ['rrdb_11_dense1_conv5[0][0]']
+
+ rrdb_11_dense1_add (Add)           (None, 24, 24, 64)      0            ['rrdb_10_add[0][0]',
+                                                                          'rrdb_11_dense1_scale[0][0]']
+
+ rrdb_11_dense2_conv1 (Conv2D)      (None, 24, 24, 16)      9232         ['rrdb_11_dense1_add[0][0]']
+
+ rrdb_11_dense2_concat1 (Concatenat  (None, 24, 24, 80)     0            ['rrdb_11_dense1_add[0][0]',
+ e)                                                                       'rrdb_11_dense2_conv1[0][0]']
+
+ rrdb_11_dense2_conv2 (Conv2D)      (None, 24, 24, 16)      11536        ['rrdb_11_dense2_concat1[0][0]']
+
+ rrdb_11_dense2_concat2 (Concatenat  (None, 24, 24, 96)     0            ['rrdb_11_dense1_add[0][0]',
+ e)                                                                       'rrdb_11_dense2_conv1[0][0]',
+                                                                          'rrdb_11_dense2_conv2[0][0]']
+
+ rrdb_11_dense2_conv3 (Conv2D)      (None, 24, 24, 16)      13840        ['rrdb_11_dense2_concat2[0][0]']
+
+ rrdb_11_dense2_concat3 (Concatenat  (None, 24, 24, 112)    0            ['rrdb_11_dense1_add[0][0]',
+ e)                                                                       'rrdb_11_dense2_conv1[0][0]',
+                                                                          'rrdb_11_dense2_conv2[0][0]',
+                                                                          'rrdb_11_dense2_conv3[0][0]']
+
+ rrdb_11_dense2_conv4 (Conv2D)      (None, 24, 24, 16)      16144        ['rrdb_11_dense2_concat3[0][0]']
+
+ rrdb_11_dense2_concat4 (Concatenat  (None, 24, 24, 128)    0            ['rrdb_11_dense1_add[0][0]',
+ e)                                                                       'rrdb_11_dense2_conv1[0][0]',
+                                                                          'rrdb_11_dense2_conv2[0][0]',
+                                                                          'rrdb_11_dense2_conv3[0][0]',
+                                                                          'rrdb_11_dense2_conv4[0][0]']
+
+ rrdb_11_dense2_conv5 (Conv2D)      (None, 24, 24, 64)      73792        ['rrdb_11_dense2_concat4[0][0]']
+
+ rrdb_11_dense2_scale (Lambda)      (None, 24, 24, 64)      0            ['rrdb_11_dense2_conv5[0][0]']
+
+ rrdb_11_dense2_add (Add)           (None, 24, 24, 64)      0            ['rrdb_11_dense1_add[0][0]',
+                                                                          'rrdb_11_dense2_scale[0][0]']
+
+ rrdb_11_dense3_conv1 (Conv2D)      (None, 24, 24, 16)      9232         ['rrdb_11_dense2_add[0][0]']
+
+ rrdb_11_dense3_concat1 (Concatenat  (None, 24, 24, 80)     0            ['rrdb_11_dense2_add[0][0]',
+ e)                                                                       'rrdb_11_dense3_conv1[0][0]']
+
+ rrdb_11_dense3_conv2 (Conv2D)      (None, 24, 24, 16)      11536        ['rrdb_11_dense3_concat1[0][0]']
+
+ rrdb_11_dense3_concat2 (Concatenat  (None, 24, 24, 96)     0            ['rrdb_11_dense2_add[0][0]',
+ e)                                                                       'rrdb_11_dense3_conv1[0][0]',
+                                                                          'rrdb_11_dense3_conv2[0][0]']
+
+ rrdb_11_dense3_conv3 (Conv2D)      (None, 24, 24, 16)      13840        ['rrdb_11_dense3_concat2[0][0]']
+
+ rrdb_11_dense3_concat3 (Concatenat  (None, 24, 24, 112)    0            ['rrdb_11_dense2_add[0][0]',
+ e)                                                                       'rrdb_11_dense3_conv1[0][0]',
+                                                                          'rrdb_11_dense3_conv2[0][0]',
+                                                                          'rrdb_11_dense3_conv3[0][0]']
+
+ rrdb_11_dense3_conv4 (Conv2D)      (None, 24, 24, 16)      16144        ['rrdb_11_dense3_concat3[0][0]']
+
+ rrdb_11_dense3_concat4 (Concatenat  (None, 24, 24, 128)    0            ['rrdb_11_dense2_add[0][0]',
+ e)                                                                       'rrdb_11_dense3_conv1[0][0]',
+                                                                          'rrdb_11_dense3_conv2[0][0]',
+                                                                          'rrdb_11_dense3_conv3[0][0]',
+                                                                          'rrdb_11_dense3_conv4[0][0]']
+
+ rrdb_11_dense3_conv5 (Conv2D)      (None, 24, 24, 64)      73792        ['rrdb_11_dense3_concat4[0][0]']
+
+ rrdb_11_dense3_scale (Lambda)      (None, 24, 24, 64)      0            ['rrdb_11_dense3_conv5[0][0]']
+
+ rrdb_11_dense3_add (Add)           (None, 24, 24, 64)      0            ['rrdb_11_dense2_add[0][0]',
+                                                                          'rrdb_11_dense3_scale[0][0]']
+
+ rrdb_11_scale (Lambda)             (None, 24, 24, 64)      0            ['rrdb_11_dense3_add[0][0]']
+
+ rrdb_11_add (Add)                  (None, 24, 24, 64)      0            ['rrdb_10_add[0][0]',
+                                                                          'rrdb_11_scale[0][0]']
+
+ trunk_conv (Conv2D)                (None, 24, 24, 64)      36928        ['rrdb_11_add[0][0]']
+
+ trunk_add (Add)                    (None, 24, 24, 64)      0            ['initial_conv[0][0]',
+                                                                          'trunk_conv[0][0]']
+
+ self_attention_trunk (SelfAttentio  (None, 24, 24, 64)     5232         ['trunk_add[0][0]']
+ n)
+
+ upsample_0_conv (Conv2D)           (None, 24, 24, 256)     147712       ['self_attention_trunk[0][0]']
+
+ upsample_0_pixelshuffle (Lambda)   (None, 48, 48, 64)      0            ['upsample_0_conv[0][0]']
+
+ upsample_0_leaky (LeakyReLU)       (None, 48, 48, 64)      0            ['upsample_0_pixelshuffle[0][0]']
+
+ self_attention_upsample_0 (SelfAtt  (None, 48, 48, 64)     5232         ['upsample_0_leaky[0][0]']
+ ention)
+
+ final_conv1 (Conv2D)               (None, 48, 48, 64)      36928        ['self_attention_upsample_0[0][0]']
+
+ final_conv2 (Conv2D)               (None, 48, 48, 3)       1731         ['final_conv1[0][0]']
+
+==============================================================================================================
+Total params: 4,719,139
+Trainable params: 4,719,139
+Non-trainable params: 0
+______________________________________________________________________________________________________________
+
+==============================================================================================================
+ DISCRIMINATOR
+==============================================================================================================
+Model: "Discriminator"
+______________________________________________________________________________________________________________
+ Layer (type)                                    Output Shape                                Param #
+==============================================================================================================
+ hr_input (InputLayer)                           [(None, 48, 48, 3)]                         0
+
+ spectral_normalization (SpectralNormalization)  (None, 48, 48, 64)                          1856
+
+ disc_leaky1 (LeakyReLU)                         (None, 48, 48, 64)                          0
+
+ spectral_normalization_1 (SpectralNormalization  (None, 48, 48, 64)                         36992
+ )
+
+ disc_leaky2 (LeakyReLU)                         (None, 48, 48, 64)                          0
+
+ spectral_normalization_2 (SpectralNormalization  (None, 24, 24, 64)                         36992
+ )
+
+ disc_leaky3 (LeakyReLU)                         (None, 24, 24, 64)                          0
+
+ spectral_normalization_3 (SpectralNormalization  (None, 24, 24, 128)                        73984
+ )
+
+ disc_leaky4 (LeakyReLU)                         (None, 24, 24, 128)                         0
+
+ spectral_normalization_4 (SpectralNormalization  (None, 12, 12, 128)                        147712
+ )
+
+ disc_leaky5 (LeakyReLU)                         (None, 12, 12, 128)                         0
+
+ spectral_normalization_5 (SpectralNormalization  (None, 12, 12, 256)                        295424
+ )
+
+ disc_leaky6 (LeakyReLU)                         (None, 12, 12, 256)                         0
+
+ spectral_normalization_6 (SpectralNormalization  (None, 6, 6, 256)                          590336
+ )
+
+ disc_leaky7 (LeakyReLU)                         (None, 6, 6, 256)                           0
+
+ spectral_normalization_7 (SpectralNormalization  (None, 6, 6, 512)                          1180672
+ )
+
+ disc_leaky8 (LeakyReLU)                         (None, 6, 6, 512)                           0
+
+ spectral_normalization_8 (SpectralNormalization  (None, 3, 3, 512)                          2360320
+ )
+
+ disc_leaky9 (LeakyReLU)                         (None, 3, 3, 512)                           0
+
+ disc_gap (GlobalAveragePooling2D)               (None, 512)                                 0
+
+ spectral_normalization_9 (SpectralNormalization  (None, 256)                                131584
+ )
+
+ disc_leaky_dense1 (LeakyReLU)                   (None, 256)                                 0
+
+ spectral_normalization_10 (SpectralNormalizatio  (None, 1)                                  258
+ n)
+
+==============================================================================================================
+Total params: 4,856,130
+Trainable params: 4,853,889
+Non-trainable params: 2,241
+______________________________________________________________________________________________________________
+
+==============================================================================================================
+ VGG FEATURE EXTRACTOR
+==============================================================================================================
+Model: "VGG_Feature_Extractor"
+______________________________________________________________________________________________________________
+ Layer (type)                                    Output Shape                                Param #
+==============================================================================================================
+ input_1 (InputLayer)                            [(None, 48, 48, 3)]                         0
+
+ block1_conv1 (Conv2D)                           (None, 48, 48, 64)                          1792
+
+ block1_conv2 (Conv2D)                           (None, 48, 48, 64)                          36928
+
+ block1_pool (MaxPooling2D)                      (None, 24, 24, 64)                          0
+
+ block2_conv1 (Conv2D)                           (None, 24, 24, 128)                         73856
+
+ block2_conv2 (Conv2D)                           (None, 24, 24, 128)                         147584
+
+ block2_pool (MaxPooling2D)                      (None, 12, 12, 128)                         0
+
+ block3_conv1 (Conv2D)                           (None, 12, 12, 256)                         295168
+
+ block3_conv2 (Conv2D)                           (None, 12, 12, 256)                         590080
+
+ block3_conv3 (Conv2D)                           (None, 12, 12, 256)                         590080
+
+ block3_conv4 (Conv2D)                           (None, 12, 12, 256)                         590080
+
+ block3_pool (MaxPooling2D)                      (None, 6, 6, 256)                           0
+
+ block4_conv1 (Conv2D)                           (None, 6, 6, 512)                           1180160
+
+ block4_conv2 (Conv2D)                           (None, 6, 6, 512)                           2359808
+
+ block4_conv3 (Conv2D)                           (None, 6, 6, 512)                           2359808
+
+ block4_conv4 (Conv2D)                           (None, 6, 6, 512)                           2359808
+
+ block4_pool (MaxPooling2D)                      (None, 3, 3, 512)                           0
+
+ block5_conv1 (Conv2D)                           (None, 3, 3, 512)                           2359808
+
+ block5_conv2 (Conv2D)                           (None, 3, 3, 512)                           2359808
+
+ block5_conv3 (Conv2D)                           (None, 3, 3, 512)                           2359808
+
+ block5_conv4 (Conv2D)                           (None, 3, 3, 512)                           2359808
+
+==============================================================================================================
+Total params: 20,024,384
+Trainable params: 0
+Non-trainable params: 20,024,384
+______________________________________________________________________________________________________________
+

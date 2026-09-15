@@ -393,8 +393,8 @@ class ESRGAN:
         x = LeakyReLU(alpha=0.2, name="disc_leaky1")(x)
         
         # Convolutional blocks (reduced depth and channels to lower parameter count)
-        filters = [64, 64, 128, 128, 256]
-        strides = [2, 1, 2, 1, 2]
+        filters = [64, 64, 128, 128, 256, 256, 512, 512]
+        strides = [1, 2, 1, 2, 1, 2, 1, 2]
 
         for i, (f, s) in enumerate(zip(filters, strides)):
             x = SpectralNormalization(Conv2D(f, 3, strides=s, padding="same", name=f"disc_conv{i+2}"))(x)

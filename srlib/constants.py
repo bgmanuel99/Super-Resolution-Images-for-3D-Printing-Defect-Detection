@@ -224,8 +224,8 @@ ESRGAN_BATCH_SIZE = 16
 # models are compared at matched capacity. Restoring the paper's values
 # would give it 16.8 M, twelve times EDSR, and any gap would then be
 # attributable to size rather than to the architecture.
-ESRGAN_RRDB_BLOCKS = 4
-ESRGAN_GROWTH_CHANNELS = 8
+ESRGAN_RRDB_BLOCKS = 12
+ESRGAN_GROWTH_CHANNELS = 16
 
 # =====================================================================
 # LR dataset degradation
