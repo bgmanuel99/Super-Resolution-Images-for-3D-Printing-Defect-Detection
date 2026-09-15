@@ -28,6 +28,17 @@ def apply_per_channel(algorithm, image, **kwargs):
 
     return np.stack(channels, axis=-1)
 
+def interpolate_nearest(lr_img, target_shape: Tuple[int, int]):
+    """Nearest-neighbour upscaling.
+
+    Replicates pixels instead of blending them, so it changes the frame
+    size without inventing any detail. That is what makes it the resampling
+    of the low-resolution baseline of the detection pipeline rather than a
+    competing reconstruction, and it is why it is not one of the classic
+    algorithms the benchmark ranks.
+    """
+    return cv2.resize(lr_img, target_shape, interpolation=cv2.INTER_NEAREST)
+
 def interpolate_bilinear(lr_img, target_shape: Tuple[int, int]):
     """Bilinear upscaling."""
     return cv2.resize(lr_img, target_shape, interpolation=cv2.INTER_LINEAR)

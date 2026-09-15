@@ -23,7 +23,7 @@ from srlib.progress import stage
 from srlib.constants import TIMESTAMP_FORMAT
 from srlib.dataset.loading import add_padding
 
-# The on-disk naming and layout of a trained variant are owned by
+# The on-disk naming and layout of a trained run are owned by
 # 'model_registry', which is also what the defect detection pipeline uses to
 # find these checkpoints again. Importing it here keeps writer and reader on
 # one convention.
@@ -32,8 +32,6 @@ from srlib.model_registry import (
     save_epoch_log,
     save_model_summary,
     save_run_metrics,
-    vgg16_run_name,
-    vgg16_variant_name,
 )
 
 # Registering the layer lets 'load_model' rebuild it from a saved '.h5'
@@ -455,9 +453,9 @@ class FineTunedVGG16:
         return results
 
     def evaluate_and_save(
-            self, X_test, y_test, head_history, finetune_history, source,
+            self, X_test, y_test, head_history, finetune_history,
             timestamp=None):
-        """Evaluate the variant, then persist the model and its metrics.
+        """Evaluate the run, then persist the model and its metrics.
 
         The two phases are concatenated into one curve per metric, so the
         training plot shows a single run with the unfreeze marked on it
@@ -466,13 +464,11 @@ class FineTunedVGG16:
         Parameters
         ----------
         X_test, y_test : np.ndarray
-            Test partition of this variant.
+            Test partition of the classifier.
         head_history, finetune_history : keras.callbacks.History
             The pair returned by ``fit_two_phases``.
-        source : {'hr', 'lr'}
-            Which resolution this variant was trained on.
         timestamp : str, optional
-            Run identifier, shared by both variants of the same run.
+            Run identifier. Defaults to the current time.
 
         Returns
         -------
@@ -483,7 +479,7 @@ class FineTunedVGG16:
         timestamp = timestamp or datetime.datetime.now().strftime(
             TIMESTAMP_FORMAT
         )
-        run_name = vgg16_variant_name(source, timestamp)
+        run_name = f"VGG16_{timestamp}"
 
         def joined(key):
             return (
@@ -491,7 +487,7 @@ class FineTunedVGG16:
                 + list(finetune_history.history.get(key, []))
             )
 
-        with stage(f"VGG16 [{source.upper()}] run {timestamp}") as step:
+        with stage(f"VGG16 run {timestamp}") as step:
             step("evaluating on the test partition")
             results = self.evaluate(X_test, y_test)
             trainable, frozen = self.count_parameters()
@@ -508,12 +504,8 @@ class FineTunedVGG16:
                 "frozen_params": frozen,
             }
 
-            # Both variants of a run share one parent folder, so the pair
-            # the pipeline needs cannot be half-deleted or half-copied.
-            run_dir = prepare_run_directory(
-                "VGG16", run_name, parent=vgg16_run_name(timestamp)
-            )
-            self.save(directory=run_dir, timestamp=timestamp, source=source)
+            run_dir = prepare_run_directory("VGG16", run_name)
+            self.save(directory=run_dir, timestamp=timestamp)
             step(f"metrics    -> {save_run_metrics(run_dir, run_name, metrics)}")
             step(f"summary    -> {save_model_summary(run_dir, run_name, self.model)}")
 
@@ -641,17 +633,15 @@ class FineTunedVGG16:
 
         return winning_class, confidence
 
-    def save(self, directory, timestamp, source):
-        """Save the model under a filename that states which variant it is."""
+    def save(self, directory, timestamp):
+        """Save the model under the run name the registry resolves."""
 
         if not self.trained:
             raise RuntimeError("Cannot save an untrained model.")
         
         os.makedirs(directory, exist_ok=True)
         
-        path = os.path.join(
-            directory, f"{vgg16_variant_name(source, timestamp)}.h5"
-        )
+        path = os.path.join(directory, f"VGG16_{timestamp}.h5")
         
         self.model.save(path)
         

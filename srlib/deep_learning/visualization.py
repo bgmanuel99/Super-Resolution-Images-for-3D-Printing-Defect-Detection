@@ -192,24 +192,22 @@ def plot_sr_memory(
     return fig, axes
 
 def plot_vgg16_training_curves(
-    metrics_by_source: dict,
+    metrics: dict,
     title: str = "VGG16 fine-tuning: loss and accuracy",
     figsize=(14, 5),
     save_path: str | None = None):
     """
-    Plot the loss and accuracy curves of every VGG16 variant.
+    Plot the loss and accuracy curves of the VGG16 classifier.
 
-    Both variants are drawn on the same pair of axes so the resolution they
-    were trained on can be compared directly. Each variant owns a hue, and
-    within that hue the two splits are told apart by three cues at once:
-    training is the dark shade, solid, with round markers, and validation is
-    the light shade, dashed, with square markers. One cue alone is not
-    enough on a sixty-epoch curve where the two splits overlap.
+    The two splits are told apart by three cues at once: training is the
+    dark shade, solid, with round markers, and validation is the light
+    shade, dashed, with square markers. One cue alone is not enough on a
+    sixty-epoch curve where the two overlap.
 
-    A dotted horizontal line is the variant's test score. The vertical line
-    is where its first phase ended and the backbone was unfrozen, which is
-    what the step in every curve at that epoch comes from; both lines carry
-    their own legend entry so the figure needs no external caption.
+    A dotted horizontal line is the test score. The vertical line is where
+    the first phase ended and the backbone was unfrozen, which is what the
+    step in both curves at that epoch comes from; both lines carry their
+    own legend entry so the figure needs no external caption.
 
     The loss panel is logarithmic because the two phases live on different
     scales: the head starts above 0.5 and the fine-tuning settles below
@@ -218,9 +216,8 @@ def plot_vgg16_training_curves(
 
     Parameters
     ----------
-    metrics_by_source : dict
-        Maps a source tag such as ``'hr'`` or ``'lr'`` to the metrics dict
-        saved by the training notebook.
+    metrics : dict
+        The metrics dict saved by the training notebook.
     save_path : str, optional
         Directory the figure is written to. Nothing is saved when omitted.
 
@@ -231,11 +228,7 @@ def plot_vgg16_training_curves(
     """
 
     # Dark shade for training, light shade of the same hue for validation.
-    palette = {
-        "hr": {"train": "#14375e", "val": "#7aa6d2"},
-        "lr": {"train": "#8a3c07", "val": "#f0a35e"},
-    }
-    fallback = {"train": "#333333", "val": "#999999"}
+    shades = {"train": "#14375e", "val": "#7aa6d2"}
     panels = [
         ("loss", "final_train_loss", "final_val_loss", "eval_loss", "Loss"),
         ("accuracy", "final_train_accuracy", "final_val_accuracy",
@@ -245,45 +238,41 @@ def plot_vgg16_training_curves(
     fig, axes = plt.subplots(1, 2, figsize=figsize)
 
     for ax, (name, train_key, val_key, eval_key, ylabel) in zip(axes, panels):
-        for source, metrics in metrics_by_source.items():
-            shades = palette.get(source, fallback)
-            tag = source.upper()
+        for key, split, style, marker in (
+                (train_key, "train", "-", "o"),
+                (val_key, "val", "--", "s")):
+            curve = metrics.get(key)
+            if not isinstance(curve, (list, tuple)) or len(curve) == 0:
+                continue
+            ax.plot(
+                range(1, len(curve) + 1), curve,
+                style, color=shades[split], marker=marker, markersize=4,
+                # A marker on every epoch turns a long curve into a solid
+                # band and hides the shape it is there to show.
+                markevery=max(1, len(curve) // 12),
+                linewidth=1.6, zorder=3,
+                label=split,
+            )
 
-            for key, split, style, marker in (
-                    (train_key, "train", "-", "o"),
-                    (val_key, "val", "--", "s")):
-                curve = metrics.get(key)
-                if not isinstance(curve, (list, tuple)) or len(curve) == 0:
-                    continue
-                ax.plot(
-                    range(1, len(curve) + 1), curve,
-                    style, color=shades[split], marker=marker, markersize=4,
-                    # A marker on every epoch turns a long curve into a solid
-                    # band and hides the shape it is there to show.
-                    markevery=max(1, len(curve) // 12),
-                    linewidth=1.6, zorder=3,
-                    label=f"{tag} {split}",
-                )
+        score = metrics.get(eval_key)
+        if score is not None:
+            ax.axhline(
+                float(score), color="#b3541e", ls=":", linewidth=1.6,
+                alpha=0.95, zorder=2,
+                label=f"test = {float(score):.4f}",
+            )
 
-            score = metrics.get(eval_key)
-            if score is not None:
-                ax.axhline(
-                    float(score), color=shades["train"], ls=":", linewidth=1.4,
-                    alpha=0.9, zorder=2,
-                    label=f"{tag} test = {float(score):.4f}",
-                )
-
-            # Phase 1 trains the head over a frozen backbone and phase 2
-            # opens its last layers, so both the loss and the accuracy step
-            # at this epoch by construction rather than by instability.
-            head_epochs = metrics.get("head_epochs_run")
-            if head_epochs:
-                ax.axvline(
-                    float(head_epochs) + 0.5, color=shades["train"],
-                    ls="-.", linewidth=1.2, alpha=0.55, zorder=1,
-                    label=(f"{tag} backbone unfrozen "
-                           f"(phase 2 from epoch {int(head_epochs) + 1})"),
-                )
+        # Phase 1 trains the head over a frozen backbone and phase 2 opens
+        # its last layers, so both the loss and the accuracy step at this
+        # epoch by construction rather than by instability.
+        head_epochs = metrics.get("head_epochs_run")
+        if head_epochs:
+            ax.axvline(
+                float(head_epochs) + 0.5, color="#555555",
+                ls="-.", linewidth=1.2, alpha=0.7, zorder=1,
+                label=(f"backbone unfrozen "
+                       f"(phase 2 from epoch {int(head_epochs) + 1})"),
+            )
 
         ax.set_title(name.capitalize())
         ax.set_xlabel("Epoch")
@@ -291,7 +280,7 @@ def plot_vgg16_training_curves(
         if name == "loss":
             ax.set_yscale("log")
         ax.grid(alpha=0.3, which="both")
-        ax.legend(fontsize=7, ncol=2, framealpha=0.9)
+        ax.legend(fontsize=8, framealpha=0.9)
 
     fig.suptitle(title, fontsize=14)
     fig.tight_layout(rect=(0, 0, 1, 0.95))

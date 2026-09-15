@@ -12,73 +12,11 @@ from srlib.constants import (
     MODELS,
     TIMESTAMP_FORMAT,
     TIMESTAMP_PATTERN,
-    VGG16_SOURCES,
 )
 
 _TIMESTAMP_RE = re.compile(TIMESTAMP_PATTERN)
 
-def vgg16_variant_name(source, timestamp):
-    """
-    Build the canonical name identifying a trained VGG16 variant.
-
-    Both variants share every hyperparameter and differ only in the
-    resolution of the patches they were trained on, so the source tag is
-    the only thing that tells their checkpoints apart. Keeping the name in
-    a single function stops the model file, its folder and its metrics
-    pickle from drifting into different conventions.
-
-    Lives here, next to the run resolution logic, because this name *is*
-    the on-disk layout: the notebook that trains the classifiers and the
-    one that runs the detection pipeline have to agree on it, and a second
-    copy of the convention is exactly how they would stop agreeing.
-
-    Parameters
-    ----------
-    source : {'hr', 'lr'}
-        Which side of the LR/HR pair the model was trained on.
-    timestamp : str
-        Training timestamp, formatted as ``%Y%m%d_%H%M%S``.
-
-    Returns
-    -------
-    str
-        Name of the form ``VGG16_HR_20260828_181500``.
-    """
-
-    if source not in VGG16_SOURCES:
-        raise ValueError(f"source must be one of {VGG16_SOURCES}, got {source!r}")
-    if not timestamp or not isinstance(timestamp, str):
-        raise ValueError("timestamp must be a non-empty string.")
-
-    return f"VGG16_{source.upper()}_{timestamp}"
-
-def vgg16_run_name(timestamp):
-    """
-    Build the name of the folder holding both variants of one VGG16 run.
-
-    The notebook trains the HR and the LR classifier in the same pass and
-    they are only comparable as a pair, so the two variant folders live
-    under a single run folder instead of side by side at the family root.
-    The pipeline resolves a VGG16 run by this one name and then reaches
-    both checkpoints inside it.
-
-    Parameters
-    ----------
-    timestamp : str
-        Training timestamp, formatted as ``%Y%m%d_%H%M%S``.
-
-    Returns
-    -------
-    str
-        Name of the form ``VGG16_20260828_181500``.
-    """
-
-    if not timestamp or not isinstance(timestamp, str):
-        raise ValueError("timestamp must be a non-empty string.")
-
-    return f"VGG16_{timestamp}"
-
-def prepare_run_directory(model, run_name, parent=None):
+def prepare_run_directory(model, run_name):
     """Create and return the directory a training run writes into.
 
     Owned by this module because it is the same path ``model_artifacts``
@@ -91,9 +29,6 @@ def prepare_run_directory(model, run_name, parent=None):
         Model family, one of ``MODELS``.
     run_name : str
         Directory name, e.g. ``SRCNN_20260828_181500``.
-    parent : str, optional
-        Folder inserted between the family root and ``run_name``. VGG16
-        uses it to group its two variants under one run.
 
     Returns
     -------
@@ -101,10 +36,7 @@ def prepare_run_directory(model, run_name, parent=None):
         Absolute path of the created run directory.
     """
 
-    root = MODEL_FAMILY_ROOTS[_validate_model(model)]
-    run_dir = os.path.join(root, parent, run_name) if parent else os.path.join(
-        root, run_name
-    )
+    run_dir = os.path.join(MODEL_FAMILY_ROOTS[_validate_model(model)], run_name)
     os.makedirs(run_dir, exist_ok=True)
 
     return run_dir
@@ -391,9 +323,6 @@ def list_runs(model):
     actually trained, and it survives copying the repository or restoring a
     backup, both of which rewrite mtime.
 
-    A VGG16 run is only reported when *both* the HR and the LR variant are
-    present, because the defect detection pipeline needs the pair.
-
     Parameters
     ----------
     model : {'SRCNN', 'EDSR', 'ESRGAN', 'VGG16'}
@@ -408,33 +337,13 @@ def list_runs(model):
     model = _validate_model(model)
     directories = _run_directories(MODEL_FAMILY_ROOTS[model])
 
-    if model == "VGG16":
-        # A run is one folder holding both variants, so the pair is checked
-        # inside it rather than across the family root.
-        root = MODEL_FAMILY_ROOTS[model]
-        timestamps = []
-        for name in directories:
-            match = _TIMESTAMP_RE.search(name)
-            if match is None:
-                continue
-            timestamp = match.group(1)
-            if name != vgg16_run_name(timestamp):
-                continue
-            if all(
-                os.path.isdir(os.path.join(
-                    root, name, vgg16_variant_name(source, timestamp)
-                ))
-                for source in VGG16_SOURCES
-            ):
-                timestamps.append(timestamp)
-    else:
-        timestamps = []
-        for name in directories:
-            match = _TIMESTAMP_RE.search(name)
-            if match is None:
-                continue
-            if name[:match.start()].rstrip("_").upper() == model:
-                timestamps.append(match.group(1))
+    timestamps = []
+    for name in directories:
+        match = _TIMESTAMP_RE.search(name)
+        if match is None:
+            continue
+        if name[:match.start()].rstrip("_").upper() == model:
+            timestamps.append(match.group(1))
 
     def sort_key(timestamp):
         try:
@@ -526,24 +435,13 @@ def _esrgan_artifacts(root, timestamp, scale_factor):
     }
 
 def _vgg16_artifacts(root, timestamp, scale_factor):
-    # The VGG16 notebook trains one classifier per input resolution in the
-    # same run, so a single timestamp identifies both variants and both
-    # live under one run directory.
-    run_dir = os.path.join(root, vgg16_run_name(timestamp))
-    artifacts = {"run_dir": run_dir}
+    run_dir = os.path.join(root, f"VGG16_{timestamp}")
 
-    for source in VGG16_SOURCES:
-        variant = vgg16_variant_name(source, timestamp)
-        variant_dir = os.path.join(run_dir, variant)
-        artifacts[f"{source}_run_dir"] = variant_dir
-        artifacts[f"{source}_weights"] = os.path.join(
-            variant_dir, f"{variant}.h5"
-        )
-        artifacts[f"{source}_metrics"] = os.path.join(
-            variant_dir, f"{variant}_metrics.pkl"
-        )
-
-    return artifacts
+    return {
+        "run_dir": run_dir,
+        "weights": os.path.join(run_dir, f"VGG16_{timestamp}.h5"),
+        "metrics": os.path.join(run_dir, f"VGG16_{timestamp}_metrics.pkl"),
+    }
 
 _ARTIFACT_BUILDERS = {
     "SRCNN": _srcnn_artifacts,
@@ -579,8 +477,7 @@ def model_artifacts(
     dict
         ``timestamp`` plus one entry per artefact. SRCNN adds
         ``hr_dimensions``; ESRGAN exposes ``generator`` and
-        ``discriminator`` instead of ``weights``; VGG16 prefixes its keys
-        with ``hr_`` and ``lr_``.
+        ``discriminator`` instead of ``weights``.
     """
 
     model = _validate_model(model)

@@ -628,13 +628,16 @@ def extract_classification_patches(
     labels,
     patch_size,
     stride,
-    source='hr',
     desc="patches"):
     """
-    Extract labelled patches from one side of the LR/HR pair.
+    Extract labelled patches from the HR side of the LR/HR pair.
 
     Every patch of an image inherits the class id of that image, so the
     partition stays disjoint at image level.
+
+    The HR side is the only one extracted because a single classifier
+    scores every row of the detection comparison, and the frame size it is
+    trained at is the one every reconstruction is produced at.
 
     Parameters
     ----------
@@ -648,8 +651,6 @@ def extract_classification_patches(
         Patch size (height == width).
     stride : int
         Sliding window stride.
-    source : {'hr', 'lr'}
-        Which side of the pair to extract patches from.
     desc : str
         Label of the progress bar, normally the name of the partition.
 
@@ -661,16 +662,13 @@ def extract_classification_patches(
         (N,) class ids as int64, aligned with X.
     """
 
-    if source not in ('hr', 'lr'):
-        raise ValueError("source must be 'hr' or 'lr'")
-
     X, y = [], []
 
     for base, label in tqdm(
             list(zip(basenames, labels)),
             desc=f"    {desc:<5}", unit="img", leave=False):
-        hr_path, lr_path = pairs[base]
-        image = read_image_as_rgb(hr_path if source == 'hr' else lr_path)
+        hr_path, _ = pairs[base]
+        image = read_image_as_rgb(hr_path)
 
         proc = add_padding(image, patch_size, stride)
 
@@ -1049,7 +1047,6 @@ def load_vgg16_dataset(
     hr_root,
     lr_root,
     class_map_path,
-    source='hr',
     patch_size=VGG_PATCH_SIZE,
     stride=VGG_STRIDE,
     subsample_fraction=DATASET_FRACTION,
@@ -1057,22 +1054,25 @@ def load_vgg16_dataset(
     val_size=VAL_SIZE,
     seed=RANDOM_SEED):
     """
-    Build the VGG16 classification dataset: image patches -> class labels.
+    Build the VGG16 classification dataset: HR patches -> class labels.
 
-    ``source`` selects which side of the pair feeds the classifier, so the
-    same call signature trains one model on HR patches and another on LR
-    patches over the exact same image partition.
+    The classifier is trained on the HR side only, because it is the single
+    classifier every row of the detection comparison is scored with and
+    every reconstruction is produced at the HR frame size.
+
+    ``lr_root`` is still required: the image-level partition is derived
+    from the basenames present in BOTH roots, which is what keeps this
+    split identical to the one every other loader produces from the same
+    seed.
 
     Parameters
     ----------
     hr_root : str
         Root folder containing HR images.
     lr_root : str
-        Root folder containing LR images.
+        Root folder containing LR images, used to resolve the partition.
     class_map_path : str
         Path to the pickled { basename: class_id } mapping.
-    source : {'hr', 'lr'}
-        Which side of the pair to extract patches from.
     patch_size : int
         Patch size (height == width).
     stride : int
@@ -1095,8 +1095,7 @@ def load_vgg16_dataset(
     validate_patch_params(patch_size, stride)
 
     with stage(
-            f"VGG16 dataset [{source.upper()}] | patch {patch_size}, "
-            f"stride {stride}") as step:
+            f"VGG16 dataset | patch {patch_size}, stride {stride}") as step:
         pairs, train, val, test = partition_dataset_images(
             hr_root,
             lr_root,
@@ -1108,13 +1107,13 @@ def load_vgg16_dataset(
         )
 
         X_train, y_train = extract_classification_patches(
-            pairs, train[0], train[1], patch_size, stride, source, desc="train"
+            pairs, train[0], train[1], patch_size, stride, desc="train"
         )
         X_val, y_val = extract_classification_patches(
-            pairs, val[0], val[1], patch_size, stride, source, desc="val"
+            pairs, val[0], val[1], patch_size, stride, desc="val"
         )
         X_test, y_test = extract_classification_patches(
-            pairs, test[0], test[1], patch_size, stride, source, desc="test"
+            pairs, test[0], test[1], patch_size, stride, desc="test"
         )
         report_patch_counts(step, X_train, X_val, X_test)
 

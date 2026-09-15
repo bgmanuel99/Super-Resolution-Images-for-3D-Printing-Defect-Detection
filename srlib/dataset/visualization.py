@@ -156,29 +156,28 @@ def plot_patch_pairs(
     return fig, axes
 
 def plot_classification_patches(
-        patches_by_source, labels_by_source, count=4, seed=None,
-        output_path=None, figsize=None):
+        X, y, count=4, seed=None, output_path=None, figsize=None):
     """
-    Show training patches of every classifier variant side by side.
+    Show a random sample of the patches the classifier is trained on.
 
-    Patches have the same pixel size in every row, so what the figure makes
-    visible is the object scale each variant learns to recognise, which is
-    the only thing that separates the two classifiers.
+    What the figure is for is checking the object scale and the label of
+    what actually reaches the network, which is the one thing a patch count
+    in a log cannot show.
 
     Parameters
     ----------
-    patches_by_source : dict
-        ``{source: X_train}`` for each variant, drawn in insertion order.
-    labels_by_source : dict
-        ``{source: y_train}`` aligned with ``patches_by_source``.
+    X : np.ndarray
+        ``(N, patch, patch, 3)`` training patches in ``[0, 1]``.
+    y : sequence
+        Class id per patch, aligned with ``X``.
     count : int
-        Columns to draw per variant.
+        Patches to draw.
     seed : int, optional
-        Seed of the column picks.
+        Seed of the sample picks.
     output_path : str, optional
         Where to write the figure. Nothing is written when omitted.
     figsize : tuple, optional
-        Defaults to a size that scales with the number of variants.
+        Defaults to a size that scales with ``count``.
 
     Returns
     -------
@@ -186,24 +185,19 @@ def plot_classification_patches(
         ``(fig, axes)``.
     """
 
-    sources = list(patches_by_source)
     rng = np.random.default_rng(seed)
     title_font = {"family": "serif", "size": 9}
 
     fig, axes = plt.subplots(
-        len(sources), count,
-        figsize=figsize or (2 * count, 2.2 * len(sources)),
-        squeeze=False,
+        1, count, figsize=figsize or (2 * count, 2.4), squeeze=False,
     )
-    for row, source in enumerate(sources):
-        X, y = patches_by_source[source], labels_by_source[source]
-        for column, index in enumerate(
-                rng.choice(len(X), size=min(count, len(X)), replace=False)):
-            axes[row, column].imshow(np.clip(X[index], 0.0, 1.0))
-            axes[row, column].set_title(
-                f"{source.upper()} - label {y[index]}", fontdict=title_font
-            )
-            axes[row, column].axis("off")
+    for column, index in enumerate(
+            rng.choice(len(X), size=min(count, len(X)), replace=False)):
+        axes[0, column].imshow(np.clip(X[index], 0.0, 1.0))
+        axes[0, column].set_title(
+            f"label {y[index]}", fontdict=title_font
+        )
+        axes[0, column].axis("off")
 
     plt.tight_layout()
     _save(fig, output_path, dpi=300)

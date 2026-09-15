@@ -160,11 +160,6 @@ MODELS = ("SRCNN", "EDSR", "ESRGAN", "VGG16")
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 TIMESTAMP_PATTERN = r"(\d{8}_\d{6})$"
 
-# The defect detection study trains one classifier per input resolution:
-# 'hr' is used on HR and super-resolved images, 'lr' is the native-resolution
-# baseline. Both must be distinguishable on disk, hence the variant tag.
-VGG16_SOURCES = ("hr", "lr")
-
 MODEL_FAMILY_ROOTS = {
     model: os.path.join(MODELS_ROOT, model) for model in MODELS
 }
@@ -178,11 +173,10 @@ MODEL_DEFAULT_SCALE_FACTORS = {
 # =====================================================================
 # VGG16 fine-tuning hyperparameters
 # =====================================================================
-# The LR variant is the baseline the SR methods are compared against, so it
-# must differ from the HR variant ONLY in the resolution of its input. Every
-# hyperparameter is declared once here and reused for both, otherwise any gap
-# between baseline and SR could be attributed to the training recipe instead
-# of to the resolution.
+# One classifier scores every row of the defect detection comparison, so
+# these values are what the whole study is measured through. Declared here
+# rather than in the notebook so the run that produced a checkpoint can be
+# reconstructed from the repository alone.
 VGG16_SETUP_PARAMS = dict(
     train_last_n_layers=6,
     dropout_rate=0.3,

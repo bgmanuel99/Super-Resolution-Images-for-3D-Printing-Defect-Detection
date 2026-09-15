@@ -18,6 +18,7 @@ from srlib.classic.algorithms import (
     interpolate_bicubic,
     interpolate_bilinear,
     interpolate_lanczos,
+    interpolate_nearest,
     non_local_means,
 )
 from srlib.constants import (
@@ -45,31 +46,35 @@ class DefectDetectionPipeline:
     Runs the whole defect detection comparison over one test split.
 
     Every method reconstructs the same LR test images at the HR frame size,
-    and the resulting images are classified with the fine-tuned VGG16. The LR
-    row is the baseline and is the only one scored with the LR-trained
-    classifier, at its native resolution: comparing an SR row against it
-    isolates the effect of the reconstruction rather than a change of
-    classifier input size.
+    and every row, references included, is classified by the one fine-tuned
+    VGG16. A single classifier is what makes the rows comparable: any
+    difference between them is then a difference between the images, never
+    between two models that were fitted separately.
 
-    The HR row is the ceiling: the original frames scored by the same
-    classifier that scores every reconstruction. Without it the table has no
-    upper reference, and an accuracy cannot be read as close to or far from
-    what the resolution allows. LR and HR therefore bracket every SR row.
+    LR is the baseline and HR the ceiling, so the two bracket every
+    reconstruction. Without the ceiling an accuracy cannot be read as close
+    to or far from what the resolution allows.
 
-    All eleven reconstructions produce RGB float images in ``[0, 1]`` at the
-    HR frame size, which is the input regime the HR classifier was trained
-    on, so no row is penalised for a domain it never saw.
+    The baseline is resampled to the reference frame with nearest
+    neighbour, so it is a rescaled LR row and has to be described as one.
+    Replicating pixels adds no detail, which is what keeps the row a
+    measure of the low-resolution capture, but it does put every row at the
+    same frame size and the same number of voting patches: without it the
+    baseline aggregated 16 patches against 81 and showed the object at
+    twice the apparent scale the classifier was trained on, so part of any
+    gap in its favour came from the protocol rather than the resolution.
+
+    All twelve reconstructions produce RGB float images in ``[0, 1]`` at the
+    HR frame size, which is the input regime the classifier was trained on.
     """
 
-    # Evaluation order of the table and of every figure. The two references
-    # come first so every figure shows the band the SR rows must fall in,
-    # then the learned models, then the classic families.
+    # Reading order of the table and of every figure: the LR baseline, the
+    # classic interpolations, the remaining classic algorithms, the learned
+    # models, and the HR ceiling last. The two references sit at the ends so
+    # every figure is read as the band the middle rows have to fall in, and
+    # the families in between are grouped by increasing sophistication.
     METHODS = (
         "LR",
-        "HR",
-        "SRCNN",
-        "EDSR",
-        "ESRGAN",
         "Bilinear",
         "Bicubic",
         "Area",
@@ -78,6 +83,10 @@ class DefectDetectionPipeline:
         "Non-Local Means",
         "Edge-guided",
         "Freq-extrapolation",
+        "SRCNN",
+        "EDSR",
+        "ESRGAN",
+        "HR",
     )
 
     # Short labels for the qualitative grid, where long names do not fit.
@@ -199,13 +208,7 @@ class DefectDetectionPipeline:
         print(f"  HR frame size: {self.hr_w} x {self.hr_h}")
 
     def setup_models(self):
-        """Load the three SR generators and the two VGG16 classifiers.
-
-        Two classifiers cover three kinds of row: the LR one scores the
-        baseline at its native resolution, and the HR one scores both the
-        original frames and every reconstruction, which all share the HR
-        frame size it was trained on.
-        """
+        """Load the three SR generators and the VGG16 classifier."""
 
         print("Loading models")
 
@@ -232,31 +235,32 @@ class DefectDetectionPipeline:
             ),
         )
 
-        vgg16_hr = FineTunedVGG16()
-        vgg16_hr.setup_model(
+        vgg16 = FineTunedVGG16()
+        vgg16.setup_model(
             from_pretrained=True,
-            pretrained_path=self.artifacts["VGG16"]["hr_weights"],
-        )
-
-        vgg16_lr = FineTunedVGG16()
-        vgg16_lr.setup_model(
-            from_pretrained=True,
-            pretrained_path=self.artifacts["VGG16"]["lr_weights"],
+            pretrained_path=self.artifacts["VGG16"]["weights"],
         )
 
         self.models = {
             "SRCNN": srcnn,
             "EDSR": edsr,
             "ESRGAN": esrgan,
-            "VGG16_HR": vgg16_hr,
-            "VGG16_LR": vgg16_lr,
+            "VGG16": vgg16,
         }
 
         return self.models
 
-    def _map_images(self, name, transform, desc=None):
+    # Width every per-row log line pads its label to, so the build section
+    # and the classification section line their columns up with each other.
+    _LABEL_WIDTH = 22
+
+    def _map_images(self, name, transform):
         """
-        Apply a per-image transform over the LR test set with a progress bar.
+        Apply a per-image transform over the LR test set.
+
+        The progress bar is transient and the summary line is not, so a
+        finished row leaves one line behind instead of two: over thirteen
+        rows that is the difference between a readable log and a wall.
 
         Returns
         -------
@@ -270,43 +274,61 @@ class DefectDetectionPipeline:
             for lr_img in tqdm(
                 self.X_LR_test,
                 total=len(self.X_LR_test),
-                desc=desc or f"{name} SR",
+                desc=f"  {name}",
+                leave=False,
             )
         ]
-        elapsed = time.perf_counter() - started
-        print(f"  {name:<20} {elapsed:7.2f}s  ({len(outputs)} images)")
+        print(
+            f"  {name:<{self._LABEL_WIDTH}} "
+            f"{time.perf_counter() - started:7.2f}s",
+            flush=True,
+        )
 
         return outputs
 
     def _run_deep_model(self, name, super_resolve):
         """Super-resolve the test set with one deep learning model."""
 
-        outputs = self._map_images(name, super_resolve, desc=f"{name} inference")
-
-        return np.stack(outputs, axis=0)
+        return np.stack(self._map_images(name, super_resolve), axis=0)
 
     def build_sr_images(self):
         """
         Reconstruct the test set with every method.
 
-        The two reference rows are stored unchanged: LR at its native
-        resolution and HR as the ceiling. The remaining eleven methods
-        output RGB floats in ``[0, 1]`` at the HR frame size.
+        Only HR is stored unchanged. Every other row, the rescaled baseline
+        included, outputs RGB floats in ``[0, 1]`` at the HR frame size.
 
         Returns
         -------
         dict
-            Method name to its reconstructions.
+            Method name to its reconstructions. Built in whatever order is
+            cheapest; every figure reads it back in ``METHODS`` order.
         """
 
         if not self.models:
             self.setup_models()
 
-        print("\nBuilding super-resolved images")
+        print(
+            f"\nBuilding super-resolved images from "
+            f"{len(self.X_LR_test)} LR test frames"
+        )
         started = time.perf_counter()
 
-        # Neither reference is reconstructed, so both bypass _map_images.
-        self.sr_images = {"LR": self.X_LR_test, "HR": self.X_HR_test}
+        # The ceiling is the original frame, so it is the only row that is
+        # not resampled and the only one that bypasses _map_images.
+        self.sr_images = {"HR": self.X_HR_test}
+        print(f"  {'HR':<{self._LABEL_WIDTH}} reference, used unchanged")
+
+        # The baseline is brought to the reference frame by replicating
+        # pixels. It adds no detail, so the row still measures the
+        # low-resolution capture, but it puts the baseline at the frame
+        # size and the patch count every other row is scored at.
+        self.sr_images["LR"] = self._map_images(
+            "LR (nearest upscale)",
+            lambda lr: interpolate_nearest(
+                lr, target_shape=(self.hr_w, self.hr_h)
+            ),
+        )
 
         self.sr_images["SRCNN"] = self._run_deep_model(
             "SRCNN",
@@ -369,7 +391,11 @@ class DefectDetectionPipeline:
 
     def predict(self):
         """
-        Classify every reconstruction with the fine-tuned VGG16.
+        Classify every row with the fine-tuned VGG16.
+
+        The same classifier scores the two references and the eleven
+        reconstructions, so no row carries an advantage from having been
+        matched with a model of its own.
 
         Returns
         -------
@@ -384,36 +410,38 @@ class DefectDetectionPipeline:
         if not self.models:
             self.setup_models()
 
-        print("\nClassifying with VGG16")
+        print(f"\nClassifying {len(self.METHODS)} rows with VGG16")
         started = time.perf_counter()
+
+        classifier = self.models["VGG16"]
 
         self.labels, self.confidences = {}, {}
         for name in self.METHODS:
-            # The baseline keeps its native resolution, so it is the only row
-            # scored by the classifier trained on LR patches. HR shares the
-            # classifier of the SR rows, which is what makes it their ceiling.
-            classifier = (
-                self.models["VGG16_LR"] if name == "LR"
-                else self.models["VGG16_HR"]
-            )
-            variant = "VGG16-LR" if name == "LR" else "VGG16-HR"
-
+            row_started = time.perf_counter()
             labels, confidences = self._classify(
-                classifier, self.sr_images[name], f"{variant} on {name}"
+                classifier, self.sr_images[name], name
             )
             self.labels[name] = labels
             self.confidences[name] = confidences
 
             accuracy = float(np.mean(np.asarray(labels) == self.y_test))
-            print(f"  {name:<20} accuracy={accuracy:.4f}")
+            print(
+                f"  {name:<{self._LABEL_WIDTH}} "
+                f"{time.perf_counter() - row_started:7.2f}s  "
+                f"accuracy={accuracy:.4f}",
+                flush=True,
+            )
 
         print(f"Predictions done in {time.perf_counter() - started:.2f}s")
 
         return self.labels, self.confidences
 
-    def _classify(self, classifier, images, desc):
+    def _classify(self, classifier, images, name):
         """
         Classify a set of images by majority voting over patches.
+
+        The progress bar is transient for the same reason it is in
+        ``_map_images``: the caller writes the line that stays.
 
         Returns
         -------
@@ -422,7 +450,8 @@ class DefectDetectionPipeline:
         """
 
         labels, confidences = [], []
-        for image in tqdm(images, total=len(images), desc=desc):
+        for image in tqdm(
+                images, total=len(images), desc=f"  {name}", leave=False):
             label, confidence = classifier.classify_defects_method(
                 image=image,
                 patch_size=self.vgg_patch_size,
