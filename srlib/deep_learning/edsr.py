@@ -34,6 +34,7 @@ from srlib.deep_learning.callbacks import (
     EpochTimeCallback,
     last_epoch_metrics,
     profile_evaluation,
+    profile_reconstruction,
 )
 
 class EDSR:
@@ -271,16 +272,45 @@ class EDSR:
 
         return timestamp, run_dir, metrics
 
-    def super_resolve_image(self, lr_img, patch_size_lr=EDSR_PATCH_SIZE, stride=EDSR_STRIDE):
+    def super_resolve_image(self, lr_img, patch_size_lr=EDSR_PATCH_SIZE, stride=EDSR_STRIDE, profile=False):
         """Patch-based SR similar in flow to SRCNN, but accepts an in-memory LR numpy array.
         Steps: add padding, extract LR patches, batch-predict HR patches, reconstruct with
-        overlap averaging, and crop to original HR size. No interpolation is used."""
+        overlap averaging, and crop to original HR size. No interpolation is used.
+
+        Args:
+            lr_img: LR RGB image array.
+            patch_size_lr: LR patch size used for the sliding window.
+            stride: Stride for LR patch extraction.
+            profile: When True the frame is reconstructed several times to
+                measure its cost, so the returned image is the one the last
+                timed run produced. The whole reconstruction is charged, the
+                sliding window and the reassembly included, because that is
+                what a frame costs at inference and what the classic
+                algorithms are compared against.
+
+        Returns:
+            np.ndarray float32 RGB in [0,1] at the upscaled size, or
+            ``(image, cost)`` when profile is True.
+        """
 
         if not self.trained:
             raise RuntimeError("Model has not been trained.")
 
         if self.scale_factor is None:
             raise ValueError("scale_factor is not set. Call setup_model first.")
+
+        if not profile:
+            return self._reconstruct_image(lr_img, patch_size_lr, stride)
+
+        return profile_reconstruction(
+            self._reconstruct_image, lr_img, patch_size_lr, stride
+        )
+
+    def _reconstruct_image(self, lr_img, patch_size_lr, stride):
+        """Run the patch-wise inference over one LR frame.
+        Returns:
+            np.ndarray float32 RGB in [0,1] at the upscaled size.
+        """
 
         # --- Helpers to mirror SRCNN's structure (adapted for EDSR scaling) ---
         def extract_patches_from_image(image, patch_size=48, stride=24):

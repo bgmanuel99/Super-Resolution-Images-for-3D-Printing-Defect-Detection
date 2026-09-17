@@ -9,7 +9,8 @@ from skimage.metrics import (
 from tqdm import tqdm
 
 from srlib.progress import stage
-from srlib.dataset.loading import select_dataset_basenames
+from srlib.profiling import profile_algorithm
+from srlib.dataset.loading import select_dataset_basenames, split_stratified
 from srlib.constants import (
     CLASS_LABELS_PATH,
     DATASET_FRACTION,
@@ -43,7 +44,6 @@ from srlib.classic.profiling import (
     kl_divergence,
     kl_divergence_color,
     mae,
-    profile_algorithm,
     rmse,
 )
 
@@ -87,11 +87,12 @@ class BenchmarkResults:
     freq_example: tuple = None
 
 class ClassicSuperResolutionBenchmark:
-    """Profiles the classic super-resolution algorithms over the dataset.
+    """Profiles the classic super-resolution algorithms over the test split.
 
     Runs the four interpolations and the four advanced algorithms on every
-    LR/HR pair, recording time, memory and nine quality metrics per
-    algorithm, and keeps one image aside to illustrate the outputs.
+    LR/HR pair of the test partition, recording time, memory and nine
+    quality metrics per algorithm, and keeps one image aside to illustrate
+    the outputs.
 
     All eight produce RGB uint8 at the HR frame size and are scored in the
     same colour domain, which is what makes a single weighted ranking over
@@ -130,7 +131,8 @@ class ClassicSuperResolutionBenchmark:
             Position in the sorted pair list whose outputs are kept for the
             qualitative figures.
         fraction : float or None
-            Fraction of images to benchmark, shared with the model loaders.
+            Fraction of the dataset kept before the split, shared with the
+            model loaders.
         ibp_iterations : int
             Refinement steps of the iterative back-projection.
         """
@@ -156,10 +158,12 @@ class ClassicSuperResolutionBenchmark:
         """
         List the LR/HR pairs to benchmark, in a stable order.
 
-        Resolved through the shared selector, so the algorithms are scored
-        on the same stratified fraction of images the models are trained
-        on. Benchmarking the full dataset while the models see half of it
-        would compare the two families over different populations.
+        Only the test partition is returned, resolved through the shared
+        selector and the shared split, so the algorithms are scored on the
+        very images the learned models are evaluated on. Scoring them over
+        the whole dataset would compare the two families on different
+        populations, and the reconstruction cost reported for each would
+        then describe a different set of frames.
 
         Returns
         -------
@@ -167,12 +171,13 @@ class ClassicSuperResolutionBenchmark:
             ``(basename, hr_path, lr_path)`` sorted by basename.
         """
 
-        basenames, pairs, _ = select_dataset_basenames(
+        basenames, pairs, labels = select_dataset_basenames(
             self.hr_root, self.lr_root, self.class_map_path,
             fraction=self.fraction,
         )
+        _, _, (test_basenames, _) = split_stratified(basenames, labels)
 
-        return [(name, *pairs[name]) for name in basenames]
+        return [(name, *pairs[name]) for name in sorted(test_basenames)]
 
     @staticmethod
     def _read_rgb(path):
@@ -336,7 +341,7 @@ class ClassicSuperResolutionBenchmark:
 
     def run(self):
         """
-        Profile every algorithm over the whole dataset.
+        Profile every algorithm over the test partition.
 
         Pairs are read one at a time rather than preloaded: the dataset at
         full resolution is hundreds of megabytes and only one pair is needed
@@ -357,7 +362,10 @@ class ClassicSuperResolutionBenchmark:
                 f"Classic SR benchmark | {len(CLASSIC_ALGORITHMS)} algorithms "
                 f"x {len(pairs)} pairs") as step:
             step(f"algorithms {', '.join(CLASSIC_ALGORITHMS)}")
-            step(f"selection {len(pairs)} images at fraction {self.fraction}")
+            step(
+                f"test partition {len(pairs)} images at fraction "
+                f"{self.fraction}"
+            )
 
             for index, (_, hr_path, lr_path) in enumerate(
                     tqdm(pairs, desc="  pairs", unit="pair")):

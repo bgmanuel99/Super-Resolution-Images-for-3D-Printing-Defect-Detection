@@ -3,6 +3,8 @@ import numpy as np
 import tensorflow as tf
 from keras.callbacks import Callback
 
+from srlib.profiling import profile_algorithm
+
 def last_epoch_metrics(history, keys=("loss", "psnr", "ssim")):
     """Take the last-epoch value of each train/validation curve.
 
@@ -123,6 +125,46 @@ def profile_evaluation(evaluate, device="GPU:0"):
             [current_before, current_after], np.mean
         ),
         "gpu_peak_mb": peak,
+    }
+
+def profile_reconstruction(reconstruct, *args, device="GPU:0", **kwargs):
+    """
+    Measure the cost of reconstructing one frame.
+
+    Time and host memory come from the same estimator the classic
+    algorithms are profiled with, so a learned model and an interpolation
+    are measured alike and their per-frame costs can be read side by side.
+
+    Device memory is a peak read from a counter reset beforehand. Every
+    repetition allocates the same buffers, so the peak over the repetitions
+    is the peak of one reconstruction rather than an accumulation.
+
+    Parameters
+    ----------
+    reconstruct : callable
+        Returns the super-resolved frame.
+    device : str
+        Device whose memory is read.
+
+    Returns
+    -------
+    tuple
+        ``(frame, cost)``, cost keyed 'time_sec', 'cpu_memory_mb' and
+        'gpu_peak_mb'. The device entry is NaN when there is no GPU.
+    """
+
+    reset_gpu_memory_peak(device)
+
+    frame, elapsed, host_bytes = profile_algorithm(
+        reconstruct, *args, **kwargs
+    )
+
+    _, gpu_peak_mb = read_gpu_memory_mb(device)
+
+    return frame, {
+        "time_sec": float(elapsed),
+        "cpu_memory_mb": _bytes_to_mb(host_bytes),
+        "gpu_peak_mb": gpu_peak_mb,
     }
 
 class _GpuMemorySampler:

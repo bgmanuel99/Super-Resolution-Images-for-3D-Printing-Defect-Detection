@@ -34,6 +34,7 @@ from srlib.constants import (
     VGG_PATCH_SIZE,
     VGG_STRIDE,
 )
+from srlib.profiling import compute_summary_stats
 from srlib.deep_learning.edsr import EDSR
 from srlib.deep_learning.esrgan import ESRGAN
 from srlib.deep_learning.srcnn import SRCNNModel
@@ -87,6 +88,18 @@ class DefectDetectionPipeline:
         "ESRGAN",
         "HR",
     )
+
+    # Rows produced by a trained network. They are the only ones profiled
+    # while they reconstruct, and the only ones that hold device memory.
+    DEEP_MODELS = ("SRCNN", "EDSR", "ESRGAN")
+
+    # One colour per learned model, shared with the training figures so the
+    # same model is never drawn in two different colours.
+    DEEP_MODEL_COLORS = {
+        "SRCNN": "tab:blue",
+        "EDSR": "tab:orange",
+        "ESRGAN": "tab:green",
+    }
 
     # Short labels for the qualitative grid, where long names do not fit.
     SHORT_LABELS = {
@@ -197,6 +210,7 @@ class DefectDetectionPipeline:
         self.sr_images = {}
         self.labels = {}
         self.confidences = {}
+        self.inference_cost = {}
 
     def report_runs(self):
         """Print the run each model was loaded from."""
@@ -286,9 +300,19 @@ class DefectDetectionPipeline:
         return outputs
 
     def _run_deep_model(self, name, super_resolve):
-        """Super-resolve the test set with one deep learning model."""
+        """Super-resolve the test set with one deep learning model.
 
-        return np.stack(self._map_images(name, super_resolve), axis=0)
+        The transform is expected to profile itself, so each frame arrives
+        with its cost attached and the two are separated here: the images
+        feed the classifier and the costs feed
+        ``inference_cost_metrics``.
+        """
+
+        outputs = self._map_images(name, super_resolve)
+
+        self.inference_cost[name] = [cost for _, cost in outputs]
+
+        return np.stack([frame for frame, _ in outputs], axis=0)
 
     def build_sr_images(self):
         """
@@ -297,6 +321,13 @@ class DefectDetectionPipeline:
         The two reference rows are stored unchanged: LR at its native
         resolution and HR as the ceiling. The remaining eleven methods
         output RGB floats in ``[0, 1]`` at the HR frame size.
+
+        The three learned models are profiled while they reconstruct, which
+        is the only point of the study where they process whole frames and
+        therefore the only place their per-frame cost can be compared with
+        the classic algorithms. The classic rows are not profiled here:
+        the classic benchmark measures their cost over these same test
+        frames.
 
         Returns
         -------
@@ -326,13 +357,14 @@ class DefectDetectionPipeline:
             lambda lr: self.models["SRCNN"].super_resolve_image(
                 lr, hr_h=self.hr_h, hr_w=self.hr_w,
                 patch_size=self.srcnn_patch_size, stride=self.srcnn_stride,
+                profile=True,
             ),
         )
         self.sr_images["EDSR"] = self._run_deep_model(
             "EDSR",
             lambda lr: self.models["EDSR"].super_resolve_image(
                 lr, patch_size_lr=self.edsr_patch_size,
-                stride=self.edsr_stride,
+                stride=self.edsr_stride, profile=True,
             ),
         )
         self.sr_images["ESRGAN"] = self._run_deep_model(
@@ -340,7 +372,7 @@ class DefectDetectionPipeline:
             lambda lr: self.models["ESRGAN"].super_resolve_image(
                 lr, patch_size_lr=self.esrgan_patch_size,
                 stride=self.esrgan_stride,
-                batch_size=self.esrgan_batch_size,
+                batch_size=self.esrgan_batch_size, profile=True,
             ),
         )
 
@@ -865,5 +897,118 @@ class DefectDetectionPipeline:
         self._save_figure(
             fig, "sr_confidence_panel.png", dpi=300, also_eps=False
         )
+
+        return fig, axes, metrics
+
+    def inference_cost_metrics(self):
+        """
+        Aggregate the per-frame inference cost of every learned model.
+
+        One sample per reconstructed frame enters each series, so the mean
+        is the cost of super-resolving one frame and the maximum is the
+        worst frame of the test set.
+
+        Returns
+        -------
+        dict
+            One entry per model in ``DEEP_MODELS``, holding 'time',
+            'cpu_memory' and 'gpu_memory' summaries plus the frame count.
+            Time is in seconds and both memories in MB.
+        """
+
+        if not self.inference_cost:
+            raise RuntimeError(
+                "No inference cost recorded. Call run or build_sr_images "
+                "first."
+            )
+
+        summary = {}
+        for name in self.DEEP_MODELS:
+            frames = self.inference_cost[name]
+            series = {
+                "time": [frame["time_sec"] for frame in frames],
+                "cpu_memory": [frame["cpu_memory_mb"] for frame in frames],
+                "gpu_memory": [frame["gpu_peak_mb"] for frame in frames],
+            }
+
+            summary[name] = {
+                key: compute_summary_stats(values)
+                for key, values in series.items()
+            }
+            summary[name]["frames"] = len(frames)
+
+        return summary
+
+    def plot_inference_cost(self, figsize=(18, 13)):
+        """
+        Draw the per-frame inference cost of every learned model.
+
+        One row per measured quantity and one column per statistic: the
+        mean is what the comparison reports, the maximum bounds the worst
+        frame, and the dispersion tells whether the mean describes the set
+        or just its centre. Device memory is charged only to these rows,
+        the classic algorithms never reaching the GPU.
+
+        Returns
+        -------
+        tuple
+            ``(fig, axes, metrics)``.
+        """
+
+        metrics = self.inference_cost_metrics()
+        names = list(self.DEEP_MODELS)
+        colors = [self.DEEP_MODEL_COLORS[name] for name in names]
+        title_font = {"family": "serif", "color": "black", "size": 13}
+
+        def stats(quantity, key):
+            return [metrics[name][quantity][key] for name in names]
+
+        panels = [
+            (stats("time", "mean"), "Average Time (s)", "{:.4g}"),
+            (stats("time", "max"), "Max Time (s)", "{:.4g}"),
+            (
+                [
+                    metrics[name]["time"]["std"] / metrics[name]["time"]["mean"]
+                    for name in names
+                ],
+                "Time Jitter (std/mean)", "{:.3g}",
+            ),
+            (stats("gpu_memory", "mean"), "Average GPU Memory (MB)", "{:.1f}"),
+            (stats("gpu_memory", "max"), "Max GPU Memory (MB)", "{:.1f}"),
+            (
+                stats("gpu_memory", "var"),
+                "GPU Memory Variance (MB^2)", "{:.4g}",
+            ),
+            (stats("cpu_memory", "mean"), "Average CPU Memory (MB)", "{:.4g}"),
+            (stats("cpu_memory", "max"), "Max CPU Memory (MB)", "{:.4g}"),
+            (
+                stats("cpu_memory", "var"),
+                "CPU Memory Variance (MB^2)", "{:.4g}",
+            ),
+        ]
+
+        fig, axes = plt.subplots(3, 3, figsize=figsize)
+
+        for ax, (values, panel_title, number_format) in zip(
+                axes.ravel(), panels):
+            bars = ax.bar(names, values, color=colors, alpha=0.9)
+            ax.set_title(panel_title, fontdict=title_font)
+            ax.grid(axis="y", alpha=0.3)
+            for bar, value in zip(bars, values):
+                if np.isfinite(value):
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2, value,
+                        number_format.format(value), ha="center",
+                        va="bottom", fontsize=10,
+                    )
+
+        frames = metrics[names[0]]["frames"]
+        fig.suptitle(
+            f"Deep SR models: inference cost per frame over {frames} test "
+            f"frames",
+            fontsize=15,
+        )
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
+        self._save_figure(fig, "sr_models_inference_cost.png", dpi=300)
 
         return fig, axes, metrics

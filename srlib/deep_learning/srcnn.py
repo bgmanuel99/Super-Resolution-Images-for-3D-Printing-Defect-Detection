@@ -30,6 +30,7 @@ from srlib.deep_learning.callbacks import (
     EpochTimeCallback,
     last_epoch_metrics,
     profile_evaluation,
+    profile_reconstruction,
 )
 
 class SRCNNModel:
@@ -193,7 +194,7 @@ class SRCNNModel:
 
         return timestamp, run_dir, metrics
     
-    def super_resolve_image(self, lr_img, hr_h, hr_w, patch_size=SRCNN_PATCH_SIZE, stride=SRCNN_STRIDE, interpolation=SRCNN_UPSCALE_INTERPOLATION):
+    def super_resolve_image(self, lr_img, hr_h, hr_w, patch_size=SRCNN_PATCH_SIZE, stride=SRCNN_STRIDE, interpolation=SRCNN_UPSCALE_INTERPOLATION, profile=False):
         """Super-resolve an in-memory LR RGB image array using padding and patch-wise inference.
         Args:
             lr_img: np.ndarray RGB image; dtype uint8 [0,255] or float32 [0,1] or [0,255].
@@ -203,14 +204,34 @@ class SRCNNModel:
                 Defaults to the same shared constant the training loader uses,
                 since SRCNN sees an already-upscaled image and a mismatch here
                 would feed it a different input distribution than it learnt on.
+            profile: When True the frame is reconstructed several times to
+                measure its cost, so the returned image is the one the last
+                timed run produced. The whole reconstruction is charged, the
+                sliding window and the reassembly included, because that is
+                what a frame costs at inference and what the classic
+                algorithms are compared against.
         Returns:
-            np.ndarray float32 RGB in [0,1] of shape (hr_h, hr_w, 3).
+            np.ndarray float32 RGB in [0,1] of shape (hr_h, hr_w, 3), or
+            ``(image, cost)`` when profile is True.
         """
         
         if not self._trained:
             raise RuntimeError("Model has not been trained.")
         if lr_img is None or not isinstance(lr_img, np.ndarray):
             raise ValueError("lr_img must be a numpy array (RGB).")
+        
+        arguments = (lr_img, hr_h, hr_w, patch_size, stride, interpolation)
+        
+        if not profile:
+            return self._reconstruct_image(*arguments)
+        
+        return profile_reconstruction(self._reconstruct_image, *arguments)
+
+    def _reconstruct_image(self, lr_img, hr_h, hr_w, patch_size, stride, interpolation):
+        """Upscale the LR image and run the patch-wise inference over it.
+        Returns:
+            np.ndarray float32 RGB in [0,1] of shape (hr_h, hr_w, 3).
+        """
         
         def extract_patches_from_image(image, patch_size=33, stride=14):
             """Extracts patches from an image."""

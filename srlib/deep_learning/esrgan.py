@@ -53,6 +53,7 @@ from srlib.deep_learning.callbacks import (
     EpochTimeTracker,
     last_epoch_metrics,
     profile_evaluation,
+    profile_reconstruction,
 )
 
 class SelfAttention(Layer):
@@ -1127,7 +1128,7 @@ class ESRGAN:
 
         return timestamp, run_dir, metrics
 
-    def super_resolve_image(self, lr_img, patch_size_lr=ESRGAN_PATCH_SIZE, stride=ESRGAN_STRIDE, batch_size=16):
+    def super_resolve_image(self, lr_img, patch_size_lr=ESRGAN_PATCH_SIZE, stride=ESRGAN_STRIDE, batch_size=16, profile=False):
         """Patch-wise super-resolution using the ESRGAN generator.
         Follows SRCNN/EDSR flow: reflect padding, patch extraction, batch predict, overlap-averaged reconstruction.
         Accounts for ESRGAN's [-1,1] tanh output by normalizing inputs to [-1,1] and denormalizing outputs to [0,1].
@@ -1137,9 +1138,16 @@ class ESRGAN:
             patch_size_lr: LR patch size used for sliding window.
             stride: Stride for LR patch extraction.
             batch_size: Batch size for generator prediction.
+            profile: When True the frame is reconstructed several times to
+                measure its cost, so the returned image is the one the last
+                timed run produced. The whole reconstruction is charged, the
+                sliding window and the reassembly included, because that is
+                what a frame costs at inference and what the classic
+                algorithms are compared against.
 
         Returns:
-            np.ndarray float32 RGB image in [0,1] with shape (H*scale, W*scale, 3).
+            np.ndarray float32 RGB image in [0,1] with shape
+            (H*scale, W*scale, 3), or ``(image, cost)`` when profile is True.
         """
 
         if not self.trained:
@@ -1148,6 +1156,21 @@ class ESRGAN:
             raise RuntimeError("Generator is not initialized.")
         if not hasattr(self, 'scale_factor') or self.scale_factor is None:
             raise ValueError("scale_factor is not set. Ensure setup_model was called.")
+
+        arguments = (lr_img, patch_size_lr, stride, batch_size)
+
+        if not profile:
+            return self._reconstruct_image(*arguments)
+
+        return profile_reconstruction(self._reconstruct_image, *arguments)
+
+    def _reconstruct_image(self, lr_img, patch_size_lr, stride, batch_size):
+        """Run the generator over the patches of one LR frame.
+
+        Returns:
+            np.ndarray float32 RGB image in [0,1] with shape
+            (H*scale, W*scale, 3).
+        """
 
         scale = self.scale_factor
 
