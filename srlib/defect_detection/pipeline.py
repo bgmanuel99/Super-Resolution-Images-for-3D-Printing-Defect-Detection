@@ -728,6 +728,64 @@ class DefectDetectionPipeline:
 
         return fig, axes, metrics
 
+    def sample_candidates(self, top=10):
+        """
+        Rank test frames by how much room the baseline leaves for SR.
+
+        The grid of ``plot_sample_predictions`` only shows an effect when
+        the baseline struggles with the frame: on one the LR input already
+        classifies at full confidence there is no gain left to illustrate.
+        Frames the baseline gets wrong and FDM-ESRGAN gets right therefore
+        come first, then the ones the baseline gets right with the least
+        confidence.
+
+        Parameters
+        ----------
+        top : int
+            Number of candidates to return.
+
+        Returns
+        -------
+        list of dict
+            One entry per candidate: its index, the true label, the
+            prediction and confidence of the LR baseline and of
+            FDM-ESRGAN, and how many reconstructions classify it
+            correctly.
+        """
+
+        self._require_predictions()
+
+        reconstructions = [
+            name for name in self.METHODS if name not in ("LR", "HR")
+        ]
+
+        candidates = [
+            {
+                "index": index,
+                "true_label": int(truth),
+                "lr_prediction": int(self.labels["LR"][index]),
+                "lr_confidence": float(self.confidences["LR"][index]),
+                "esrgan_prediction": int(self.labels["ESRGAN"][index]),
+                "esrgan_confidence": float(self.confidences["ESRGAN"][index]),
+                "correct_reconstructions": sum(
+                    self.labels[name][index] == truth
+                    for name in reconstructions
+                ),
+                "reconstructions": len(reconstructions),
+            }
+            for index, truth in enumerate(self.y_test)
+        ]
+
+        # Booleans sort False before True, so each key puts the informative
+        # case first: baseline wrong, FDM-ESRGAN right, baseline unsure.
+        candidates.sort(key=lambda entry: (
+            entry["lr_prediction"] == entry["true_label"],
+            entry["esrgan_prediction"] != entry["true_label"],
+            entry["lr_confidence"],
+        ))
+
+        return candidates[:top]
+
     def plot_sample_predictions(self, index=0, figsize=None):
         """
         Draw every reconstruction of one test image with its prediction.
