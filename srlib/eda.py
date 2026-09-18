@@ -68,16 +68,11 @@ class ImagePairLoader:
             lr_path, hr_path, upscale_interpolation=SRCNN_UPSCALE_INTERPOLATION):
         """Load two images and resize LR to HR size if required.
 
-        Every pair is upscaled with the SAME declared interpolation. The
-        per-image degradation kernel is deliberately not read back, even
-        though the degradation log records it: an LR capture in the wild does
-        not come with the filter that produced it, and measuring each image
-        under a different kernel would also make the images incomparable with
-        one another.
-
-        The default is the interpolation SRCNN is fed at training and at
-        inference time, so what this analysis reports as the LR baseline is
-        exactly what the model receives.
+        Every pair is upscaled with the SAME declared interpolation, the one
+        SRCNN is fed, so the LR baseline reported here is what the model
+        receives. The per-image degradation kernel is not read back even
+        though the log records it, since a capture in the wild does not come
+        with the filter that produced it.
 
         Parameters
         ----------
@@ -210,11 +205,9 @@ class ImageDatasetAnalyzer:
     def saturation_mean(hsv):
         """Mean HSV saturation.
 
-        Saturation is the only photometric descriptor kept, because it is
-        the only one the degradation moves appreciably: chroma subsampling
-        and the colour interpolation shift it by roughly 18 % of the HR
-        level, while mean brightness stays within 1 % and therefore
-        describes the scene rather than the degradation.
+        The only photometric descriptor kept, since it is the only one the
+        degradation moves appreciably: about 18 % of the HR level, against
+        the 1 % of mean brightness.
 
         Parameters
         ----------
@@ -233,14 +226,9 @@ class ImageDatasetAnalyzer:
     def ringing(gray):
         """Intensity spread over the band surrounding the detected edges.
 
-        This is the single artefact descriptor of the EDA. Of the three that
-        were measured it is the least redundant, reaching 0.43 against the
-        retained fidelity and sharpness variables where the blocking score
-        reached 0.80. Blocking was also dropped because it did not measure
-        blocking: it samples a whole-image DCT every 8 rows instead of a
-        block-wise one, so it tracked the JPEG quality that produced the
-        artefact at 0.01 and its only response was to noise, which the
-        Laplacian variance already reports.
+        The single artefact descriptor of the EDA, and the least redundant
+        of the three measured: it reaches 0.43 against the retained fidelity
+        and sharpness variables, where the blocking score reached 0.80.
 
         Parameters
         ----------
@@ -257,11 +245,8 @@ class ImageDatasetAnalyzer:
         kernel = np.ones((5, 5), np.uint8)
         dilated = cv2.dilate(edges, kernel)
 
-        # Canny and dilate return uint8 masks holding 0 or 255, so combining
-        # them with bitwise operators yields 0/255 rather than True/False.
-        # Indexing with that array selects ROWS 0 and 255 instead of the band,
-        # which silently returned the spread of two arbitrary rows on any
-        # image taller than 255 px and raised IndexError on any smaller one.
+        # Compared against 0 first: Canny and dilate return 0/255 masks, and
+        # indexing with those values would select rows instead of the band.
         edge_region = (dilated > 0) & (edges == 0)
 
         if not np.any(edge_region):
@@ -273,10 +258,9 @@ class ImageDatasetAnalyzer:
     def color_noise(img):
         """Mean absolute deviation of an image from its Gaussian blur.
 
-        Not a per-pair metric: it is a high-pass measure that correlated
-        0.93 with the Laplacian variance already kept. It survives only to
-        feed the noise figures, which read it as a spatial map and as a
-        dataset-wide distribution rather than as a variable to correlate.
+        Not a per-pair metric: it correlated 0.93 with the Laplacian
+        variance already kept, and survives only to feed the noise figures
+        as a spatial map and a dataset-wide distribution.
 
         Parameters
         ----------
@@ -296,16 +280,10 @@ class ImageDatasetAnalyzer:
 class ImagePairMetrics:
     """Container of metrics computed for an LR/HR pair.
 
-    Deliberately small. An earlier revision carried 33 variables whose
-    families measured the same quantity several times over: the RMS noise
-    correlated 0.99 with the Laplacian variance it sat next to, the twelve
-    per-channel skew and kurtosis variables correlated above 0.99 both
-    across the three channels and between LR and HR while tracking the
-    degradation at 0.14 or less, and two of the three artefact scores were
-    high-pass measures of what the Laplacian variance already reported.
-
-    What is left is one descriptor per property the analysis reasons about:
-    perceptual fidelity, sharpness, edge artefacts, texture and photometry.
+    One descriptor per property the analysis reasons about: perceptual
+    fidelity, sharpness, edge artefacts, texture and photometry. Redundant
+    variables are left out, since whole families of them measured the same
+    quantity at correlations above 0.99.
     """
 
     def __init__(
@@ -502,7 +480,6 @@ class ImageDataVisualization:
 
         plt.figure(figsize=(20, 10))
 
-        # 1. LR Spectrum
         plt.subplot(231)
         lr_fft = np.fft.fft2(cv2.cvtColor(lr_img, cv2.COLOR_BGR2GRAY))
         plt.imshow(np.log(np.abs(np.fft.fftshift(lr_fft)) + 1e-8),
@@ -510,7 +487,6 @@ class ImageDataVisualization:
         plt.title("LR Frequency Spectrum")
         plt.colorbar()
 
-        # 2. HR Spectrum
         plt.subplot(232)
         hr_fft = np.fft.fft2(cv2.cvtColor(hr_img, cv2.COLOR_BGR2GRAY))
         plt.imshow(np.log(np.abs(np.fft.fftshift(hr_fft)) + 1e-8),
@@ -518,7 +494,6 @@ class ImageDataVisualization:
         plt.title("HR Frequency Spectrum")
         plt.colorbar()
 
-        # 3. HR Gradient Magnitude
         plt.subplot(233)
         gray_hr = cv2.cvtColor(hr_img, cv2.COLOR_BGR2GRAY)
         sobelx = cv2.Sobel(gray_hr, cv2.CV_64F, 1, 0, ksize=5)
@@ -528,7 +503,6 @@ class ImageDataVisualization:
         plt.title("Gradient Magnitude")
         plt.colorbar()
 
-        # 4. LR GLCM
         plt.subplot(234)
         lr_gray = cv2.cvtColor(lr_img, cv2.COLOR_BGR2GRAY)
         lr_glcm = graycomatrix(
@@ -539,7 +513,6 @@ class ImageDataVisualization:
         plt.title(f"LR GLCM (Contrast: {lr_contrast:.2f})")
         plt.colorbar()
 
-        # 5. LR Color Noise Map
         plt.subplot(235)
         blur = cv2.GaussianBlur(lr_img, (5, 5), 0)
         noise_map = np.mean(
@@ -550,7 +523,6 @@ class ImageDataVisualization:
         plt.title(f"Noise Map (Mean: {color_noise_mean:.2f})")
         plt.colorbar()
 
-        # 6. Saturation Distribution LR vs HR
         plt.subplot(236)
         lr_hsv = cv2.cvtColor(lr_img, cv2.COLOR_BGR2HSV)[:, :, 1]
         hr_hsv = cv2.cvtColor(hr_img, cv2.COLOR_BGR2HSV)[:, :, 1]

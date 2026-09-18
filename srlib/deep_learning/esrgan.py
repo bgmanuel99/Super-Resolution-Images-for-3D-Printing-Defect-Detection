@@ -62,9 +62,8 @@ class SelfAttention(Layer):
 
     The attention map is quadratic in the number of spatial positions, so
     the key and value branches are pooled by two before it is formed, as
-    the SAGAN formulation does. Without that pooling the map is
-    ``[B, HW, HW]``: at the upsampled resolution of the generator that is
-    a gigabyte per batch, held twice over by the gradient tape.
+    the SAGAN formulation does. Unpooled it would take a gigabyte per batch
+    at the upsampled resolution.
     """
     
     def __init__(self, channels, **kwargs):
@@ -88,9 +87,8 @@ class SelfAttention(Layer):
         g = self.g(x)  # query [B, H, W, C//8]
         h = self.h(x)  # value [B, H, W, C//2]
 
-        # Only the key and the value are pooled. The query stays at full
-        # resolution, so every output position is still attended to; what
-        # shrinks is the set of positions it attends over.
+        # Only key and value are pooled: the query stays at full resolution,
+        # so what shrinks is the set of positions attended over.
         f = self.pool(f)  # [B, H/2, W/2, C//8]
         h = self.pool(h)  # [B, H/2, W/2, C//2]
 
@@ -106,8 +104,7 @@ class SelfAttention(Layer):
 
         o = tf.matmul(beta, h_flat)  # [B, HW, C//2]
 
-        # Restored against the input, not against the pooled value, whose
-        # spatial size is now half of it.
+        # Restored against the input, not against the pooled value.
         o = tf.reshape(
             o, [batch, shape_x[1], shape_x[2], self.channels // 2]
         )
@@ -141,12 +138,10 @@ class ESRGAN:
         The networks are left unbuilt; setup_model creates or loads them.
         """
         
-        # Initialize models
         self.generator = None
         self.discriminator = None
         self.vgg_model = None
         
-        # Training parameters
         self.g_optimizer = None
         self.d_optimizer = None
         
@@ -179,17 +174,14 @@ class ESRGAN:
             discriminator_pretrained_path: Path to pretrained discriminator model
         """
         
-        # Persist scale_factor for inference utilities
         self.scale_factor = scale_factor
 
         if from_trained:
-            # Check if paths exist
             if generator_pretrained_path is None or not os.path.exists(generator_pretrained_path):
                 raise FileNotFoundError(f"Generator pretrained path does not exist: {generator_pretrained_path}")
             if discriminator_pretrained_path is None or not os.path.exists(discriminator_pretrained_path):
                 raise FileNotFoundError(f"Discriminator pretrained path does not exist: {discriminator_pretrained_path}")
             
-            # Load pretrained models
             self.generator = load_model(generator_pretrained_path, custom_objects={
                 "SelfAttention": SelfAttention,
                 "SpectralNormalization": SpectralNormalization,
@@ -215,11 +207,9 @@ class ESRGAN:
         """
         Compile the generator and the discriminator with their optimizers.
 
-        Both start at a constant Adam rate, the discriminator an order of
-        magnitude lower than the generator so that it does not overpower it
-        early in training. The decay is installed later by
-        ``_schedule_learning_rates``, which is the first point at which the
-        length of the run is known.
+        Both start at a constant Adam rate, the discriminator lower so it
+        does not overpower the generator early. The decay is installed by
+        ``_schedule_learning_rates``, once the length of the run is known.
         """
         
         self.g_optimizer = Adam(
@@ -257,33 +247,25 @@ class ESRGAN:
             Output tensor
         """
         
-        # Store input for skip connection
         input_tensor = x
         input_channels = x.shape[-1]
         
-        # First conv layer
         x1 = Conv2D(growth_rate, 3, padding="same", activation="relu", name=f"{name}_conv1")(x)
         x1_concat = Concatenate(name=f"{name}_concat1")([x, x1])
         
-        # Second conv layer
         x2 = Conv2D(growth_rate, 3, padding="same", activation="relu", name=f"{name}_conv2")(x1_concat)
         x2_concat = Concatenate(name=f"{name}_concat2")([x, x1, x2])
         
-        # Third conv layer
         x3 = Conv2D(growth_rate, 3, padding="same", activation="relu", name=f"{name}_conv3")(x2_concat)
         x3_concat = Concatenate(name=f"{name}_concat3")([x, x1, x2, x3])
         
-        # Fourth conv layer
         x4 = Conv2D(growth_rate, 3, padding="same", activation="relu", name=f"{name}_conv4")(x3_concat)
         x4_concat = Concatenate(name=f"{name}_concat4")([x, x1, x2, x3, x4])
         
-        # Fifth conv layer (output layer)
         x5 = Conv2D(input_channels, 3, padding="same", name=f"{name}_conv5")(x4_concat)
         
-        # Residual scaling
         x5 = Lambda(lambda t: t * 0.2, name=f"{name}_scale")(x5)
         
-        # Skip connection
         output = Add(name=f"{name}_add")([input_tensor, x5])
         
         return output
@@ -303,15 +285,12 @@ class ESRGAN:
         
         input_tensor = x
         
-        # Three dense blocks
         x = self._dense_block(x, growth_channels, f"{name}_dense1")
         x = self._dense_block(x, growth_channels, f"{name}_dense2")
         x = self._dense_block(x, growth_channels, f"{name}_dense3")
         
-        # Residual scaling
         x = Lambda(lambda t: t * 0.2, name=f"{name}_scale")(x)
         
-        # Skip connection
         output = Add(name=f"{name}_add")([input_tensor, x])
         
         return output
@@ -345,33 +324,25 @@ class ESRGAN:
         
         inputs = Input(shape=input_shape, name="lr_input")
         
-        # Initial convolution
         x = Conv2D(64, 3, padding="same", name="initial_conv")(inputs)
         trunk_output = x
         
-        # RRDB blocks
         for i in range(num_rrdb_blocks):
             x = self._rrdb_block(x, growth_channels, f"rrdb_{i}")
         
-        # Trunk convolution
         x = Conv2D(64, 3, padding="same", name="trunk_conv")(x)
         
-        # Trunk connection
         x = Add(name="trunk_add")([trunk_output, x])
         
-        # Self-Attention after RRDB trunk
         x = SelfAttention(64, name="self_attention_trunk")(x)
         
-        # Upsampling blocks
         num_upsample = int(np.log2(scale_factor))
         for i in range(num_upsample):
             x = self._upsample_block(x, 64, f"upsample_{i}")
             
-            # Self-Attention after first upsampling
             if i == 0:
                 x = SelfAttention(64, name=f"self_attention_upsample_{i}")(x)
         
-        # Final convolution layers
         x = Conv2D(64, 3, padding="same", activation="relu", name="final_conv1")(x)
         outputs = Conv2D(inputs.shape[-1], 3, padding="same", activation="tanh", name="final_conv2")(x)
         
@@ -389,11 +360,10 @@ class ESRGAN:
         
         inputs = Input(shape=output_shape, name="hr_input")
         
-        # Initial convolution
         x = SpectralNormalization(Conv2D(64, 3, padding="same", name="disc_conv1"))(inputs)
         x = LeakyReLU(alpha=0.2, name="disc_leaky1")(x)
         
-        # Convolutional blocks (reduced depth and channels to lower parameter count)
+        # The resolution is halved on every second block.
         filters = [64, 64, 128, 128, 256, 256, 512, 512]
         strides = [1, 2, 1, 2, 1, 2, 1, 2]
 
@@ -401,7 +371,6 @@ class ESRGAN:
             x = SpectralNormalization(Conv2D(f, 3, strides=s, padding="same", name=f"disc_conv{i+2}"))(x)
             x = LeakyReLU(alpha=0.2, name=f"disc_leaky{i+2}")(x)
         
-        # Global average pooling and dense layers
         x = GlobalAveragePooling2D(name="disc_gap")(x)
         x = SpectralNormalization(Dense(256, name="disc_dense1"))(x)
         x = LeakyReLU(alpha=0.2, name="disc_leaky_dense1")(x)
@@ -425,7 +394,6 @@ class ESRGAN:
             input_shape=output_shape
         )
         
-        # Extract features from conv5_4 layer
         vgg.trainable = False
         outputs = vgg.get_layer("block5_conv4").output
         
@@ -436,10 +404,8 @@ class ESRGAN:
     def _preprocess_vgg_input(self, x):
         """Preprocess input for VGG model."""
         
-        # Convert from [-1, 1] to [0, 255]
         x = (x + 1) * 127.5
         
-        # Apply VGG preprocessing
         return preprocess_input(x)
     
     def _perceptual_loss(self, hr_real, hr_fake):
@@ -454,15 +420,12 @@ class ESRGAN:
             Perceptual loss
         """
         
-        # Preprocess inputs for VGG
         hr_real_vgg = self._preprocess_vgg_input(hr_real)
         hr_fake_vgg = self._preprocess_vgg_input(hr_fake)
         
-        # Extract features
         real_features = self.vgg_model(hr_real_vgg)
         fake_features = self.vgg_model(hr_fake_vgg)
         
-        # Calculate MSE loss
         return mean(square(real_features - fake_features))
     
     def _pixel_loss(self, hr_real, hr_fake):
@@ -497,13 +460,10 @@ class ESRGAN:
         """
         Spectral (Fourier) L1 loss for texture preservation.
 
-        ``tf.signal.fft2d`` transforms the two innermost dimensions, so the
-        NHWC tensors are transposed to NCHW for the transform to run over
-        (height, width) instead of (width, channel).
-
-        The magnitude is divided by ``sqrt(H * W)``, the unitary convention,
-        because ``fft2d`` is unnormalised and its output would otherwise
-        grow with the patch size and dominate the other loss terms.
+        The tensors are transposed to NCHW because ``tf.signal.fft2d``
+        transforms the two innermost dimensions. The magnitude is divided
+        by ``sqrt(H * W)``, the unitary convention, since ``fft2d`` is
+        unnormalised and would otherwise grow with the patch size.
 
         Returns:
             Scalar L1 distance between the two magnitude spectra.
@@ -524,8 +484,8 @@ class ESRGAN:
         """
         Combine the four generator terms with their configured weights.
 
-        Shared by training, validation and evaluation so that the three
-        report the same quantity.
+        Shared by training, validation and evaluation, so the three report
+        the same quantity.
 
         Args:
             hr_real: Reference high-resolution images
@@ -555,11 +515,10 @@ class ESRGAN:
         """
         Install the decay schedule now that the length of the run is known.
 
-        The interval between two halvings is derived from the total number
-        of optimiser steps, so both rates fall by the same factor over any
-        run regardless of how many epochs or patches it covers. A fixed
-        interval cannot do that, and getting it wrong in the frozen
-        direction is silent: the losses simply stop moving.
+        The interval between halvings is derived from the total number of
+        optimiser steps, so both rates fall by the same factor whatever the
+        length of the run. A fixed interval that decays too fast is silent:
+        the losses simply stop moving.
 
         Args:
             epochs: Number of epochs the run will cover
@@ -596,16 +555,11 @@ class ESRGAN:
         """
         Perform one training step over both networks.
 
-        The two updates are taken from a single forward pass held by one
-        persistent tape. Alternating them needs the generator evaluated
-        once per tape, and the generator is the expensive half of the pair;
-        the gradient of each loss is still read against its own variables
-        only, so neither update leaks into the other network.
-
-        PSNR and SSIM are returned from the same ``hr_fake``. The generator
-        holds no layer whose behaviour depends on the training flag, so a
-        second pass with ``training=False`` would return an identical
-        tensor at the cost of a third traversal of the network.
+        Both updates come from a single forward pass held by one persistent
+        tape, which spares a second evaluation of the generator; each
+        gradient is still read against its own variables only. PSNR and
+        SSIM reuse the same ``hr_fake``, since no layer of the generator
+        depends on the training flag.
 
         Args:
             lr_images: Low-resolution images in [-1, 1]
@@ -694,20 +648,16 @@ class ESRGAN:
         training metrics and the validation mean for the val_ prefixed ones.
         The val_ lists stay empty when no validation source is given.
         """
-        # Basic validation
         if train_dataset is None and (X_train is None or Y_train is None):
             raise ValueError("Provide (X_train, Y_train) or a train_dataset")
 
-        # Device info
         devices = tf.config.list_physical_devices('GPU')
         if devices:
             print("Training on GPU:", [d.name for d in devices])
         else:
             print("Training on CPU")
 
-        # Building the training dataset
         if train_dataset is None:
-            # Dataset from arrays
             train_dataset = (
                 tf.data.Dataset
                 .from_tensor_slices((X_train, Y_train))
@@ -718,20 +668,16 @@ class ESRGAN:
             if steps_per_epoch is None:
                 steps_per_epoch = int(np.ceil(len(X_train)/batch_size))
         else:
-            # External dataset: it must provide batching, otherwise we add it.
-            # repeat() is forced here for consistency.
-            # The structure is left untouched if it is already batched
-            # (assumed to be the caller's responsibility).
+            # An already batched dataset is left untouched; repeat() is
+            # forced either way for consistency.
             train_dataset = train_dataset.repeat()
             if steps_per_epoch is None:
                 raise ValueError("steps_per_epoch is required when an external dataset is provided")
 
-        # Normalisation to [-1,1] where applicable
         if normalize:
             train_dataset = train_dataset.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE)
         train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
 
-        # Validation dataset
         val_data_struct = None
         if val_dataset is not None:
             val_data_struct = val_dataset
@@ -743,8 +689,8 @@ class ESRGAN:
         if val_data_struct is not None and normalize:
             val_data_struct = val_data_struct.map(lambda x,y: (x*2.0 - 1.0, y*2.0 - 1.0), num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
 
-        # The run directory does not exist yet, so the grids are staged
-        # under this training session and moved once the model is saved.
+        # The run directory does not exist yet, so grids are staged and
+        # moved once the model is saved.
         self._preview_session = datetime.datetime.now().strftime(
             TIMESTAMP_FORMAT
         )
@@ -753,8 +699,7 @@ class ESRGAN:
         elif save_dir:
             os.makedirs(save_dir, exist_ok=True)
 
-        # Cache of a fixed preview batch, so the same patches are rendered at
-        # every epoch and two grids differ only by what the generator learnt.
+        # A fixed batch, so two grids differ only by what was learnt.
         preview_cache = None
 
         def _prepare_preview_batch():
@@ -772,10 +717,8 @@ class ESRGAN:
                 lr_batch, hr_batch = X_train, Y_train
 
             if lr_batch is not None:
-                # The patches of one image are contiguous in these arrays, so
-                # the leading slice of them is a set of neighbouring crops of
-                # a single frame. Spreading the picks over the whole array is
-                # what makes the grid show unrelated content.
+                # The patches of one image are contiguous, so the picks are
+                # spread over the whole array to show unrelated content.
                 idx = np.unique(
                     np.linspace(
                         0, len(lr_batch) - 1, min(n_max, len(lr_batch))
@@ -809,11 +752,9 @@ class ESRGAN:
             """
             Write one row per preview patch as LR | SR | HR.
 
-            The generator output on its own says nothing: a 48 px crop looks
-            plausible from the first epoch, because the network is fed the
-            low-resolution image and not a noise vector. What the grid has
-            to show is the distance still left to the reference, so the
-            input and the target are rendered beside it.
+            The output alone says nothing, since a crop looks plausible from
+            the first epoch; the input and the target beside it are what
+            show the distance still left to the reference.
             """
 
             if not save_dir:
@@ -828,17 +769,15 @@ class ESRGAN:
             lr_view = (lr_preview + 1.0) / 2.0 if is_norm else lr_preview
             hr_view = (hr_preview + 1.0) / 2.0 if is_norm else hr_preview
 
-            # The LR patch is repeated, not resampled, up to HR size: the
-            # three columns then share a scale and whatever blur the left
-            # column shows is the generator's input rather than an artefact
-            # introduced by the figure.
+            # Repeated, not resampled, so the blur on the left column is the
+            # generator's input and not an artefact of the figure.
             ratio = hr_view.shape[1] // lr_view.shape[1]
             lr_view = np.repeat(
                 np.repeat(lr_view, ratio, axis=1), ratio, axis=2
             )
 
-            # A 48 px tile is too small to judge, so every tile is repeated
-            # by an integer factor. Nearest-neighbour keeps the zoom honest.
+            # Integer zoom: a 48 px tile is too small to judge, and nearest
+            # neighbour keeps it honest.
             zoom, gutter = 3, 4
             h = hr_view.shape[1] * zoom
             w = hr_view.shape[2] * zoom
@@ -864,21 +803,18 @@ class ESRGAN:
             )
             tf.io.write_file(out_path, png)
 
-        # Trackers
         time_tracker = EpochTimeTracker()
         memory_tracker = EpochMemoryTracker(track_gpu=True, gpu_device="GPU:0")
 
-        # One entry per epoch, so that history[key][-1] is the mean over the
-        # last epoch and means the same as it does in a keras History.
+        # One entry per epoch, so history[key][-1] means the same as it
+        # does in a keras History.
         train_keys = ("g_loss", "d_loss", "psnr", "ssim", "g_lr", "d_lr")
         val_keys = ("val_g_loss", "val_psnr", "val_ssim")
         history = {key: [] for key in train_keys + val_keys}
 
-        # The decay interval needs the total number of steps, which is only
-        # settled once epochs and steps_per_epoch are both resolved.
+        # Needs the total step count, settled only now.
         self._schedule_learning_rates(epochs, steps_per_epoch)
 
-        # Training loop
         for epoch in range(epochs):
             print(f"Epoch {epoch + 1}/{epochs}")
 
@@ -890,10 +826,8 @@ class ESRGAN:
             # Per-step accumulator, reset on every epoch.
             epoch_losses = {key: [] for key in train_keys}
 
-            # Iterate over training batches
             for step, (lr_batch, hr_batch) in enumerate(train_dataset.take(steps_per_epoch)):
-                # The step returns the perceptual metrics alongside the two
-                # losses, computed on the forward pass it already needed.
+                # The metrics come from the forward pass the step needed.
                 losses = self._train_step(lr_batch, hr_batch)
                 for key, value in losses.items():
                     if key in epoch_losses:
@@ -911,7 +845,6 @@ class ESRGAN:
                         f"D_loss={epoch_losses['d_loss'][-1]:.4f} PSNR={epoch_losses['psnr'][-1]:.2f} "
                         f"SSIM={epoch_losses['ssim'][-1]:.4f}")
 
-            # Epoch summary
             for key, values in epoch_losses.items():
                 history[key].append(
                     float(np.mean(values)) if values else float("nan")
@@ -922,11 +855,9 @@ class ESRGAN:
                 f"PSNR: {history['psnr'][-1]:.2f}, "
                 f"SSIM: {history['ssim'][-1]:.4f}")
 
-            # Validation, when available
             if val_data_struct is not None:
                 val_psnr, val_ssim, val_g_losses = [], [], []
                 for lr_v, hr_v in val_data_struct.take(val_steps):
-                    # Forward pass
                     hr_fake_v = self.generator(lr_v, training=False)
 
                     # Generator validation loss, without gradients
@@ -934,7 +865,6 @@ class ESRGAN:
                     g_loss_v, _ = self._generator_loss(hr_v, hr_fake_v, d_fake_v)
                     val_g_losses.append(float(g_loss_v.numpy()))
 
-                    # PSNR / SSIM in [0,1]
                     hr_real_eval = (hr_v + 1.0) / 2.0
                     hr_gen_eval  = (hr_fake_v + 1.0) / 2.0
                     val_psnr.append(float(tf.reduce_mean(tf.image.psnr(hr_real_eval, hr_gen_eval, 1.0)).numpy()))
@@ -951,21 +881,18 @@ class ESRGAN:
                 print(
                     f"  Validation -> PSNR: {val_psnr_mean:.2f}, SSIM: {val_ssim_mean:.4f}, G_loss: {val_g_loss_mean:.4f}")
 
-            # First epoch as the baseline, then one grid every few epochs:
-            # what the previews are for is the trend, not every step.
+            # First epoch as the baseline, then one grid every few epochs.
             if epoch == 0 or (epoch + 1) % preview_every == 0:
                 _save_preview_grid(epoch + 1)
 
             self.trained = True
 
-            # End-of-epoch tracking
             if memory_tracker is not None:
                 memory_tracker.end_epoch()
             if time_tracker is not None:
                 time_tracker.end_epoch()
 
-                # The custom loop has no Keras progress bar, so the epoch
-                # duration is the only cue of how long the run will take.
+                # The only cue of run length, with no Keras progress bar.
                 elapsed = time_tracker.epoch_times_sec[-1]
                 remaining = elapsed * (epochs - epoch - 1)
                 print(
@@ -996,25 +923,21 @@ class ESRGAN:
 
         print("Evaluating model on test dataset...")
 
-        # Initialize metrics
         total_psnr = 0.0
         total_ssim = 0.0
         total_g_loss = 0.0
         num_batches = 0
 
         for lr_batch, hr_batch in test_dataset:
-            # Generate high-resolution images
             hr_generated = self.generator(lr_batch, training=False)
 
             d_fake = self.discriminator(hr_generated, training=False)
             g_loss, _ = self._generator_loss(hr_batch, hr_generated, d_fake)
             total_g_loss += eval(g_loss)
 
-            # Convert to [0, 1] range for PSNR and SSIM
             hr_real_eval = (hr_batch + 1.0) / 2.0
             hr_gen_eval = (hr_generated + 1.0) / 2.0
 
-            # Calculate PSNR and SSIM
             psnr_score = tf.image.psnr(hr_real_eval, hr_gen_eval, max_val=1.0)
             ssim_score = tf.image.ssim(hr_real_eval, hr_gen_eval, max_val=1.0)
 
@@ -1023,7 +946,6 @@ class ESRGAN:
 
             num_batches += 1
 
-        # Calculate averages
         avg_psnr = total_psnr / num_batches
         avg_ssim = total_ssim / num_batches
         avg_g_loss = total_g_loss / num_batches
@@ -1045,13 +967,10 @@ class ESRGAN:
             self, test_dataset, history, time_cb, mem_cb, timestamp=None):
         """Evaluate the run, then persist both networks and the metrics.
 
-        The three steps travel together because they describe one training
-        run: splitting them across cells is what lets a checkpoint be saved
-        under one timestamp and its metrics under another.
-
-        Cost is charged over training and over this evaluation only. The
-        patch-wise reconstruction of a full frame belongs to the detection
-        pipeline, so it is not attributed to the model.
+        The three steps travel together so a checkpoint and its metrics
+        cannot end up under different timestamps. Cost is charged over
+        training and this evaluation only; reconstructing a full frame
+        belongs to the detection pipeline.
 
         Parameters
         ----------
@@ -1081,8 +1000,8 @@ class ESRGAN:
                 lambda: self.evaluate(test_dataset)
             )
 
-            # The generator loss stands in for the loss of the other two
-            # models, so the reported key set stays identical across them.
+            # The generator loss stands in for 'loss', so the reported key
+            # set is identical across the three models.
             metrics = {
                 "eval_loss": float(results["avg_g_loss"]),
                 "eval_psnr": float(results["avg_psnr"]),
@@ -1107,16 +1026,15 @@ class ESRGAN:
                  "VGG FEATURE EXTRACTOR": self.vgg_model},
             ))
 
-            # The custom loop keeps the epoch durations outside the history,
-            # so they are folded back in to match what the Keras models log.
+            # Epoch durations live outside the history, so they are folded
+            # back in to match what the Keras models log.
             step("epochs     -> " + save_epoch_log(
                 run_dir, run_name,
                 {**history, "epoch_time_sec": time_cb.epoch_times_sec},
             ))
 
-            # Previews of sessions that were never saved travel with this
-            # run rather than being lost, tagged with the session that
-            # produced them.
+            # Previews of unsaved sessions travel with this run, tagged
+            # with the session that produced them.
             moved = collect_staged_previews(run_dir)
             if moved:
                 total = sum(moved.values())
@@ -1139,11 +1057,9 @@ class ESRGAN:
             stride: Stride for LR patch extraction.
             batch_size: Batch size for generator prediction.
             profile: When True the frame is reconstructed several times to
-                measure its cost, so the returned image is the one the last
-                timed run produced. The whole reconstruction is charged, the
-                sliding window and the reassembly included, because that is
-                what a frame costs at inference and what the classic
-                algorithms are compared against.
+                measure its cost, sliding window and reassembly included,
+                so the returned image is the one the last timed run
+                produced.
 
         Returns:
             np.ndarray float32 RGB image in [0,1] with shape
@@ -1174,7 +1090,6 @@ class ESRGAN:
 
         scale = self.scale_factor
 
-        # --- Helpers mirroring EDSR/SRCNN structure ---
         def extract_lr_patches(img, patch_size, stride):
             h, w, _ = img.shape
             patches, positions = [], []
@@ -1210,19 +1125,16 @@ class ESRGAN:
         lr_orig_shape = lr_img.shape[:2]
         lr_padded = add_padding(lr_img, patch_size_lr, stride)
 
-        # Extract LR patches and normalize to [-1,1]
         lr_patches, positions = extract_lr_patches(lr_padded, patch_size_lr, stride)
 
         lr_patches_norm = (lr_patches * 2.0) - 1.0
 
-        # --- Predict HR patches in batch ---
         hr_patches = self.generator.predict(
             lr_patches_norm, batch_size=batch_size, verbose=0
         )
 
         hr_patches = (hr_patches + 1.0) / 2.0  # to [0,1]
 
-        # Reconstruct HR image and crop to target size
         return reconstruct_from_hr_patches(
             hr_patches, positions, lr_padded.shape, lr_orig_shape, patch_size_lr, scale
         )

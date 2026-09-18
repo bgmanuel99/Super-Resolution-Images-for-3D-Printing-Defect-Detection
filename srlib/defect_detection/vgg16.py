@@ -23,10 +23,8 @@ from srlib.progress import stage
 from srlib.constants import TIMESTAMP_FORMAT
 from srlib.dataset.loading import add_padding
 
-# The on-disk naming and layout of a trained run are owned by
-# 'model_registry', which is also what the defect detection pipeline uses to
-# find these checkpoints again. Importing it here keeps writer and reader on
-# one convention.
+# 'model_registry' owns the on-disk layout of a run, and it is also what
+# the pipeline uses to find these checkpoints again.
 from srlib.model_registry import (
     prepare_run_directory,
     save_epoch_log,
@@ -35,29 +33,21 @@ from srlib.model_registry import (
 )
 
 # Registering the layer lets 'load_model' rebuild it from a saved '.h5'
-# without the caller having to pass 'custom_objects', so the inference
-# pipeline keeps loading checkpoints with a plain 'load_model(path)'.
+# without the caller passing 'custom_objects'.
 @register_keras_serializable(package="srlib")
 class VGG16Preprocessing(Layer):
     """
     Apply the canonical ImageNet preprocessing expected by VGG16.
 
-    The pretrained convolutional weights were fitted on inputs in BGR order
-    with the ImageNet channel means subtracted, i.e. values spanning roughly
-    ``[-124, 151]``. The dataset loaders deliver RGB in ``[0, 1]``, so
-    feeding them straight into the backbone shifts every activation far
-    outside the range the filters were calibrated for.
-
-    Doing the conversion inside the graph, instead of at the call sites, is
-    what guarantees training and inference cannot disagree: the transform
-    travels with the model when it is saved, so there is no external step
-    left to forget.
+    The pretrained weights were fitted on BGR inputs with the channel means
+    subtracted, while the loaders deliver RGB in ``[0, 1]``. Converting
+    inside the graph is what keeps training and inference in agreement,
+    since the transform then travels with the saved model.
 
     Notes
     -----
-    The layer expects inputs already scaled to ``[0, 1]``, which is what
-    ``read_image_as_rgb`` produces. It has no weights and does not change
-    the tensor shape.
+    The layer expects inputs already scaled to ``[0, 1]``. It has no
+    weights and does not change the tensor shape.
     """
 
     def call(self, inputs):
@@ -70,8 +60,7 @@ class FineTunedVGG16:
     def __init__(self):
         self.model = None
         self.trained = False
-        # Remembered from setup so the fine-tuning phase does not have to be
-        # told again how many layers it is allowed to open.
+        # Remembered from setup for the fine-tuning phase.
         self.train_last_n_layers = 0
         self.loss = None
 
@@ -90,12 +79,9 @@ class FineTunedVGG16:
         Set up the VGG16 classifier, either by loading a pretrained model
         or building a new one.
 
-        A freshly built model always starts with the whole backbone frozen,
-        which is the state the first training phase needs. The number of
-        layers to open later is stored rather than applied now, because
-        unfreezing them before the classification head has converged lets
-        the head's large initial gradients flow back into the pretrained
-        filters and damage them.
+        A freshly built model starts with the whole backbone frozen, which
+        is what the first training phase needs. The number of layers to
+        open later is stored rather than applied now.
 
         Parameters
         ----------
@@ -149,8 +135,7 @@ class FineTunedVGG16:
         base.trainable = False
 
         inputs = Input(shape=input_shape)
-        # The backbone only sees data once it has been mapped onto the
-        # distribution its ImageNet weights were trained on.
+        # Maps the input onto the distribution the ImageNet weights expect.
         x = VGG16Preprocessing(name="vgg16_preprocess")(inputs)
         x = base(x)
         x = GlobalAveragePooling2D(name="gap")(x)
@@ -183,9 +168,8 @@ class FineTunedVGG16:
         """
         Return the nested VGG16 backbone.
 
-        The backbone is a model used as a layer, so its ``trainable`` flag
-        gates every layer inside it regardless of their individual flags.
-        Reaching it explicitly is what makes the unfreezing correct.
+        It is a model used as a layer, so its ``trainable`` flag gates every
+        layer inside it regardless of their individual flags.
         """
 
         if self.model is None:
@@ -232,17 +216,12 @@ class FineTunedVGG16:
         """
         Open the last N backbone layers for fine-tuning and recompile.
 
-        Order matters. Setting ``trainable`` on the individual layers while
-        the nested backbone itself stays frozen has no effect, because the
-        container's flag overrides the flags of everything inside it. The
-        backbone is therefore opened first and the layers that must stay
-        fixed are frozen afterwards.
-
-        The recompile is not optional and is done here rather than left to
-        the caller: ``fit`` reuses the train function traced from the
-        previous variable set, so without it the reported parameter count
-        would rise while the optimizer kept ignoring the newly opened
-        weights.
+        Order matters: the container's ``trainable`` flag overrides those of
+        the layers inside it, so the backbone is opened first and the layers
+        that must stay fixed are frozen afterwards. The recompile is not
+        optional either, since ``fit`` would otherwise reuse the train
+        function traced from the previous variable set and keep ignoring the
+        newly opened weights.
 
         Parameters
         ----------
@@ -323,9 +302,8 @@ class FineTunedVGG16:
             ReduceLROnPlateau(
                 monitor="val_loss",
                 factor=0.5,
-                # Half the early-stopping patience, so the rate can be
-                # halved a couple of times and the model given a chance to
-                # improve at the lower rate before the run is cut.
+                # Half the early-stopping patience, so the rate can drop a
+                # couple of times before the run is cut.
                 patience=max(1, patience // 2),
                 min_lr=1e-7,
                 verbose=1,
@@ -385,13 +363,9 @@ class FineTunedVGG16:
         frozen. Phase 2 opens the last N backbone layers and continues at a
         much lower learning rate.
 
-        The split is what makes the pretrained weights survive. The head
-        starts from random values, so its first gradients are large; if the
-        convolutional layers were open at that moment those gradients would
-        propagate back and overwrite the ImageNet features the model is
-        being used for in the first place. Once the head predicts sensibly,
-        the gradients reaching the backbone are small enough to refine it
-        instead of destroying it.
+        The split is what makes the pretrained weights survive: the large
+        initial gradients of a head starting from random values would
+        overwrite the ImageNet features if the convolutions were open.
 
         Parameters
         ----------
@@ -458,8 +432,7 @@ class FineTunedVGG16:
         """Evaluate the run, then persist the model and its metrics.
 
         The two phases are concatenated into one curve per metric, so the
-        training plot shows a single run with the unfreeze marked on it
-        rather than two disconnected segments.
+        training plot shows a single run with the unfreeze marked on it.
 
         Parameters
         ----------
@@ -560,15 +533,10 @@ class FineTunedVGG16:
 
         img = img.astype(np.float32)
 
-        # The in-graph preprocessing assumes the [0, 1] scale that
-        # 'read_image_as_rgb' returns, so an image on another scale has to be
-        # caught rather than left to produce quietly wrong output.
-        #
-        # Mild overshoot is not an error though: interpolation kernels with
-        # negative lobes (bicubic, Lanczos) and the iterative back-projection
-        # routinely return values a little outside [0, 1], and clipping them
-        # is what any image pipeline does. Only a departure large enough to
-        # mean a different scale altogether is treated as a mistake.
+        # The in-graph preprocessing assumes the [0, 1] scale, so another
+        # scale would produce quietly wrong output. Mild overshoot is fine
+        # and gets clipped: kernels with negative lobes and the iterative
+        # back-projection routinely return values just outside the range.
         low, high = float(img.min()), float(img.max())
         if low < -1.0 or high > 2.0:
             raise ValueError(
@@ -579,7 +547,6 @@ class FineTunedVGG16:
         if low < 0.0 or high > 1.0:
             img = np.clip(img, 0.0, 1.0)
 
-        # Determine patch/input size
         _, in_h, in_w, _ = self.model.input_shape
         if patch_size is None:
             if in_h is None or in_w is None:
@@ -608,17 +575,14 @@ class FineTunedVGG16:
         probs = self.model.predict(
             patches, batch_size=batch_size, verbose=0
         )
-        # Ensure 2D [N, num_classes]
         probs = np.asarray(probs)
         if probs.ndim != 2:
             probs = probs.reshape((probs.shape[0], -1))
 
-        # Majority voting across patches
         num_classes = int(probs.shape[1])
         patch_preds = np.argmax(probs, axis=1)
         votes = np.bincount(patch_preds, minlength=num_classes)
 
-        # Handle ties by choosing the class with highest mean probability
         top_vote = votes.max()
         top_classes = np.where(votes == top_vote)[0]
         if len(top_classes) == 1:

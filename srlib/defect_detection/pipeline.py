@@ -47,32 +47,23 @@ class DefectDetectionPipeline:
 
     Every method reconstructs the same LR test images at the HR frame size,
     and every row, references included, is classified by the one fine-tuned
-    VGG16. A single classifier is what makes the rows comparable: any
-    difference between them is then a difference between the images, never
-    between two models that were fitted separately.
+    VGG16, so a difference between rows is a difference between images and
+    not between separately fitted models. LR is the baseline and HR the
+    ceiling, which bracket every reconstruction.
 
-    LR is the baseline and HR the ceiling, so the two bracket every
-    reconstruction. Without the ceiling an accuracy cannot be read as close
-    to or far from what the resolution allows.
-
-    The baseline keeps its native resolution and is classified as it is,
-    with no resampling: rescaling it would equalise the frame but would add
-    an interpolation step that is not part of the capture, turning the
-    comparison into super-resolution against interpolation. The cost is
-    that it aggregates 16 voting patches against the 81 of every other row
-    and shows the object at twice the apparent scale the classifier was
-    trained on, so the gap between the baseline and an SR row is not due to
-    resolution alone. That has to be declared when the row is read.
+    The baseline keeps its native resolution, with no resampling, since
+    rescaling it would turn the comparison into super-resolution against
+    interpolation. The cost is that it aggregates 16 voting patches against
+    the 81 of every other row and shows the object at twice the apparent
+    scale, so its gap to an SR row is not due to resolution alone.
 
     All eleven reconstructions produce RGB float images in ``[0, 1]`` at the
-    HR frame size, which is the input regime the classifier was trained on.
+    HR frame size, which is the regime the classifier was trained on.
     """
 
-    # Reading order of the table and of every figure: the LR baseline, the
-    # classic interpolations, the remaining classic algorithms, the learned
-    # models, and the HR ceiling last. The two references sit at the ends so
-    # every figure is read as the band the middle rows have to fall in, and
-    # the families in between are grouped by increasing sophistication.
+    # Reading order of the table and of every figure. The two references
+    # sit at the ends, so each figure is read as the band the middle rows
+    # have to fall in.
     METHODS = (
         "LR",
         "Bilinear",
@@ -302,10 +293,8 @@ class DefectDetectionPipeline:
     def _run_deep_model(self, name, super_resolve):
         """Super-resolve the test set with one deep learning model.
 
-        The transform is expected to profile itself, so each frame arrives
-        with its cost attached and the two are separated here: the images
-        feed the classifier and the costs feed
-        ``inference_cost_metrics``.
+        The transform profiles itself, so each frame arrives with its cost
+        attached and the two are separated here.
         """
 
         outputs = self._map_images(name, super_resolve)
@@ -322,12 +311,9 @@ class DefectDetectionPipeline:
         resolution and HR as the ceiling. The remaining eleven methods
         output RGB floats in ``[0, 1]`` at the HR frame size.
 
-        The three learned models are profiled while they reconstruct, which
-        is the only point of the study where they process whole frames and
-        therefore the only place their per-frame cost can be compared with
-        the classic algorithms. The classic rows are not profiled here:
-        the classic benchmark measures their cost over these same test
-        frames.
+        The three learned models are profiled while they reconstruct, the
+        only point where they process whole frames. The classic rows are
+        measured by the classic benchmark, over these same test frames.
 
         Returns
         -------
@@ -732,12 +718,10 @@ class DefectDetectionPipeline:
         """
         Rank test frames by how much room the baseline leaves for SR.
 
-        The grid of ``plot_sample_predictions`` only shows an effect when
-        the baseline struggles with the frame: on one the LR input already
-        classifies at full confidence there is no gain left to illustrate.
-        Frames the baseline gets wrong and FDM-ESRGAN gets right therefore
-        come first, then the ones the baseline gets right with the least
-        confidence.
+        On a frame the LR input already classifies at full confidence there
+        is no gain left to illustrate, so the frames the baseline gets
+        wrong and FDM-ESRGAN gets right come first, then the ones it gets
+        right with the least confidence.
 
         Parameters
         ----------
@@ -1001,11 +985,9 @@ class DefectDetectionPipeline:
         """
         Draw the per-frame inference cost of every learned model.
 
-        One row per measured quantity and one column per statistic: the
-        mean is what the comparison reports, the maximum bounds the worst
-        frame, and the dispersion tells whether the mean describes the set
-        or just its centre. Device memory is charged only to these rows,
-        the classic algorithms never reaching the GPU.
+        One row per measured quantity and one column per statistic: mean,
+        worst frame and dispersion. Device memory is charged only to these
+        rows, the classic algorithms never reaching the GPU.
 
         Returns
         -------

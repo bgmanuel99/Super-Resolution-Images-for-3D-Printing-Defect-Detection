@@ -29,13 +29,12 @@ from srlib.constants import (
 
 def smart_square_crop(img):
     """
-    Crops the image to a square (width x width) region containing the main object.
-    The crop is centered on the largest contour (assumed to be the object).
-    If no contour is found, crops the center square.
+    Crops the image to a square region containing the main object, centered
+    on the largest contour. If no contour is found, crops the center square.
 
-    The side is forced to be even so that the LR frame is exactly half of
-    it. An odd side would make the HR/LR ratio differ from the scale factor
-    and break the index correspondence between paired patches.
+    The side is forced to be even, since an odd one would make the HR/LR
+    ratio differ from the scale factor and break the index correspondence
+    between paired patches.
     """
     
     h, w = img.shape[:2]
@@ -82,13 +81,10 @@ def derive_image_rng(basename, master_seed=DEFAULT_DEGRADATION_SEED):
     """
     Builds the random generator used to degrade one image.
 
-    The basename is mixed into the seed only to decorrelate images from each
-    other. Without it a single generator would be consumed in processing
-    order, so adding a video or changing frame_interval would silently alter
-    the degradation of every image that comes after it. With it, an image
-    keeps its degradation no matter when or in how many runs it is produced.
-
-    The master seed is what selects the dataset: changing it redraws all of it.
+    The basename is mixed into the seed so an image keeps its degradation
+    whenever it is produced. With a single generator consumed in processing
+    order, adding a video would alter every image after it. The master seed
+    selects the dataset: changing it redraws all of it.
 
     Parameters:
         basename (str): LR image file name, e.g. "low_z_offset42.png".
@@ -600,15 +596,11 @@ def create_hr_lr_images_from_video(
     counterpart. Numbering continues from whatever is already in the output
     directory.
 
-    Every degradation is recorded in the degradation log, which is the
-    artefact that makes the LR dataset reproducible: it is small, diffable
-    and versioned, so the dataset can be rebuilt from the videos on any
-    machine.
-
-    The log is written for reproducibility only. No model is allowed to read
-    the per-image degradation back: the kernel an image was degraded with is
-    not knowable for a real low-resolution capture, so using it at training
-    time would be privileged information.
+    Every degradation is recorded in the degradation log, which is what
+    makes the LR dataset rebuildable from the videos on any machine. The
+    log is for reproducibility only: no model reads the per-image kernel
+    back, since it is not knowable for a real capture and would therefore
+    be privileged information.
 
     Parameters
     ----------
@@ -763,9 +755,8 @@ def build_dataset_from_videos(
     number of videos at its own frame interval. Videos are processed in
     sorted order so that a rerun assigns the same image numbers.
 
-    A video that fails does not abort the run, but the failures are returned
-    and reported at the end instead of being left in the scrollback: a
-    half-built dataset that looks complete is worse than a loud error.
+    A video that fails does not abort the run; the failures are returned
+    and reported at the end, so a half-built dataset cannot look complete.
 
     Parameters
     ----------

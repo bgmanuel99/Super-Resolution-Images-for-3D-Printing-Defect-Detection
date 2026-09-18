@@ -28,16 +28,8 @@ def add_padding(image, patch_size, stride):
     """
     Reflect-pad bottom and right so the patch grid covers the whole image.
 
-    Adds the minimum amount needed to complete the last window. A larger
-    margin is never consumed by the extraction loop, which advances in
-    ``stride`` steps and stops at the last origin that still fits a full
-    patch.
-
-    This is the single implementation shared by the training loaders and by
-    every inference path. Keeping one copy is deliberate: when the training
-    grid and the inference grid are computed by separate functions they
-    drift apart, and the model ends up voting on patches drawn from a
-    region whose statistics it never saw during training.
+    Shared by the training loaders and every inference path, so the two
+    grids cannot drift apart.
 
     Parameters
     ----------
@@ -76,15 +68,11 @@ def scale_padding_to_hr(hr_image, lr_image, lr_padded, scale_factor):
     """
     Build the HR counterpart of an already padded LR image.
 
-    Each padded LR position is resolved to the LR pixel it came from, and
-    the HR block of that pixel is copied whole. That keeps
-    ``hr_index = lr_index * scale_factor`` valid inside the reflected band
-    as well.
-
-    Padding both images against their own border does not work: reflection
-    mirrors about the last index of each array, and the LR mirror axis is
-    not ``scale_factor`` times the HR one, so the two bands end up showing
-    different content.
+    Each padded LR position is resolved to the LR pixel it came from and
+    the HR block of that pixel is copied whole, which keeps
+    ``hr_index = lr_index * scale_factor`` valid inside the reflected band.
+    Padding each image against its own border would not, since the two
+    mirror axes are not related by the scale factor.
 
     Parameters
     ----------
@@ -210,10 +198,8 @@ def index_image_pairs(hr_root, lr_root, class_map_path=None):
     """
     Index aligned LR/HR image pairs by basename without reading any pixel.
 
-    This is the shared entry point of every dataset loader: subsampling and
-    partitioning are decided here, on lightweight paths and labels, so that
-    patch extraction can afterwards be streamed image by image instead of
-    holding the whole dataset in memory.
+    Subsampling and partitioning are decided here, on paths and labels, so
+    patch extraction can then be streamed image by image.
 
     Parameters
     ----------
@@ -282,9 +268,9 @@ def subsample_stratified(
     """
     Take a random, class-stratified fraction of the image list.
 
-    Sampling has to be stratified because the list is ordered by basename and
-    basenames start with the defect type: any contiguous slice of it is
-    correlated with the class and can even invert the majority class.
+    Stratification is required because the list is ordered by basename and
+    basenames start with the defect type, so any contiguous slice is
+    correlated with the class.
 
     Parameters
     ----------
@@ -330,13 +316,8 @@ def select_dataset_basenames(
     """
     Index the pairs and keep the stratified fraction the models are fed.
 
-    The analyses that describe the dataset have to look at the same images
-    the models learn from. Reducing the fraction only on the training side
-    would leave the EDA and the classic benchmark characterising a dataset
-    that no model ever sees, and their conclusions would not transfer.
-
-    No train/val/test split happens here: neither the EDA nor the classic
-    algorithms learn anything, so they read the whole selected fraction.
+    No train/val/test split happens here, so the callers that only describe
+    the dataset read the whole selected fraction.
 
     Parameters
     ----------
@@ -374,9 +355,8 @@ def split_stratified(
     """
     Split the image list into train/val/test, stratified by class.
 
-    The split is done at IMAGE level and never at patch level: patches are
-    derived from these lists afterwards, so no patch of a test image can
-    ever reach the training set.
+    The split is at IMAGE level, so no patch of a test image can reach the
+    training set.
 
     Parameters
     ----------
@@ -459,10 +439,8 @@ def patch_origins(height, width, patch_size, stride):
     """
     Yield the top-left corner of every patch of the sliding-window grid.
 
-    ``height`` and ``width`` must be the dimensions of the image AFTER
-    ``add_padding``; iterating over the unpadded shape leaves the right and
-    bottom bands uncovered and silently changes the number of patches per
-    image between training and inference.
+    ``height`` and ``width`` must be the dimensions AFTER ``add_padding``,
+    or the right and bottom bands are left uncovered.
 
     Parameters
     ----------
@@ -521,8 +499,7 @@ def extract_upscaled_patch_pairs(
         (N, patch_size, patch_size, 3) HR patches.
     hr_sizes : set of tuple of int
         Distinct ``(height, width)`` HR frame sizes found in the partition,
-        so callers can validate that the dataset is homogeneous instead of
-        inferring the frame size from a single image.
+        so callers can validate that the dataset is homogeneous.
     """
 
     X, Y = [], []
@@ -632,12 +609,10 @@ def extract_classification_patches(
     """
     Extract labelled patches from the HR side of the LR/HR pair.
 
-    Every patch of an image inherits the class id of that image, so the
-    partition stays disjoint at image level.
-
-    The HR side is the only one extracted because a single classifier
-    scores every row of the detection comparison, and the frame size it is
-    trained at is the one every reconstruction is produced at.
+    Every patch inherits the class id of its image, so the partition stays
+    disjoint at image level. Only the HR side is extracted because the
+    frame size the classifier is trained at is the one every reconstruction
+    is produced at.
 
     Parameters
     ----------
@@ -685,12 +660,6 @@ def extract_classification_patches(
 def report_patch_counts(step, X_train, X_val, X_test, Y_train=None):
     """Report the shape, weight and sanity of the extracted partitions.
 
-    The size in memory is worth showing next to the count: it is the figure
-    that explains a machine starting to swap halfway through a run. The
-    value range and the NaN check are reported here rather than left to the
-    caller because they qualify the arrays this function just built, and a
-    silent NaN only surfaces much later as a loss that never converges.
-
     Parameters
     ----------
     step : callable
@@ -699,6 +668,12 @@ def report_patch_counts(step, X_train, X_val, X_test, Y_train=None):
         Input arrays of each partition.
     Y_train : np.ndarray, optional
         Target array, reported alongside the input when it holds images.
+
+    Raises
+    ------
+    ValueError
+        If the training partition holds NaN or infinite values, which would
+        silently stop the loss converging.
     """
 
     arrays = [x for x in (X_train, X_val, X_test, Y_train) if x is not None]
@@ -746,10 +721,9 @@ def partition_dataset_images(
     """
     Index, subsample and partition the dataset at IMAGE level.
 
-    Every dataset loader starts here, so calling any two of them with the
-    same roots, class map, fraction, split sizes and seed yields the exact
-    same train/val/test images. That is what keeps the pipeline test set
-    disjoint from the training set of the models it evaluates.
+    Every loader starts here, so any two of them called with the same
+    roots, class map, fraction, split sizes and seed yield the same
+    train/val/test images.
 
     Parameters
     ----------
@@ -790,8 +764,8 @@ def partition_dataset_images(
         basenames, labels, test_size, val_size, seed
     )
 
-    # Reported because every loader derives from this same partition: seeing
-    # the same four numbers in two notebooks is what confirms it.
+    # Seeing the same four numbers in two notebooks is what confirms they
+    # derive the same partition.
     print(
         f"  images    {indexed} indexed -> {len(basenames)} kept -> "
         f"{len(train[0])} train / {len(val[0])} val / {len(test[0])} test",
@@ -814,8 +788,8 @@ def load_srcnn_dataset(
     """
     Build the SRCNN dataset: LR patches upscaled to HR size -> HR patches.
 
-    Images are subsampled and split first, patches are extracted afterwards
-    from each partition, so no patch of a test image reaches the training set.
+    Images are split first and patches extracted afterwards, so no patch of
+    a test image reaches the training set.
 
     Parameters
     ----------
@@ -878,9 +852,8 @@ def load_srcnn_dataset(
         )
         report_patch_counts(step, X_train, X_val, X_test, Y_train)
 
-        # The returned frame size is persisted and later used as the target
-        # shape of every super-resolution method, so it must be a property of
-        # the whole dataset and not of whichever image happens to be sampled.
+        # The returned frame size becomes the target shape of every SR
+        # method, so it has to be a property of the whole dataset.
         hr_sizes = sizes_train | sizes_val | sizes_test
         if len(hr_sizes) != 1:
             raise ValueError(
@@ -907,8 +880,8 @@ def load_edsr_dataset(
     """
     Build the EDSR dataset: LR patches -> HR patches at ``scale_factor``.
 
-    Images are subsampled and split first, patches are extracted afterwards
-    from each partition, so no patch of a test image reaches the training set.
+    Images are split first and patches extracted afterwards, so no patch of
+    a test image reaches the training set.
 
     Parameters
     ----------
@@ -982,8 +955,8 @@ def load_esrgan_dataset(
     """
     Build the ESRGAN dataset: LR patches -> HR patches at ``scale_factor``.
 
-    Images are subsampled and split first, patches are extracted afterwards
-    from each partition, so no patch of a test image reaches the training set.
+    Images are split first and patches extracted afterwards, so no patch of
+    a test image reaches the training set.
 
     Parameters
     ----------
@@ -1056,14 +1029,10 @@ def load_vgg16_dataset(
     """
     Build the VGG16 classification dataset: HR patches -> class labels.
 
-    The classifier is trained on the HR side only, because it is the single
-    classifier every row of the detection comparison is scored with and
-    every reconstruction is produced at the HR frame size.
-
-    ``lr_root`` is still required: the image-level partition is derived
-    from the basenames present in BOTH roots, which is what keeps this
-    split identical to the one every other loader produces from the same
-    seed.
+    The classifier is trained on the HR side only, which is the frame size
+    every reconstruction is produced at. ``lr_root`` is still required
+    because the partition is derived from the basenames present in BOTH
+    roots, which is what keeps this split identical to every other loader's.
 
     Parameters
     ----------
@@ -1135,11 +1104,10 @@ def load_defect_detection_pipeline_dataset(
     """
     Build the defect detection pipeline dataset: full LR/HR images + labels.
 
-    No patching happens here: the pipeline super-resolves the LR images and
-    then classifies the LR, HR and SR frames, which is done on whole images.
-    The partition is computed exactly like in every other loader, so calling
-    this with the same fraction, split sizes and seed as ``load_vgg16_dataset``
-    guarantees the pipeline test images were never seen during training.
+    No patching happens here, since the pipeline works on whole frames.
+    The partition is computed as in every other loader, so calling this
+    with the same fraction, split sizes and seed as ``load_vgg16_dataset``
+    guarantees the test images were never seen during training.
 
     Parameters
     ----------
